@@ -1,0 +1,113 @@
+{
+  "identity": {
+    "brand_name": "GGS (Game Gear Swap)",
+    "copyright": "MALMER",
+    "tone": "High-energy, Technical, Trustworthy, 'Neon & Concrete'",
+    "aesthetic": "Cyber-Industrial. Dark mode is deep gunmetal/black. Light mode is crisp technical white/grey.",
+    "target_audience": "Gamers, PC Builders, Deal Hunters"
+  },
+  "typography": {
+    "fonts": {
+      "heading": {
+        "family": "Chivo, sans-serif",
+        "weights": ["900", "700"],
+        "usage": "Hero titles, Section headers, Product names"
+      },
+      "body": {
+        "family": "Manrope, sans-serif",
+        "weights": ["400", "500", "600"],
+        "usage": "Paragraphs, UI labels, Navigation"
+      },
+      "mono": {
+        "family": "JetBrains Mono, monospace",
+        "weights": ["400"],
+        "usage": "Prices, Specs, Technical data, SKU numbers"
+      }
+    },
+    "rules": [
+      "Headings > 32px must use tracking-tight",
+      "Overlines must be uppercase + tracking-widest + text-xs",
+      "Never use Inter for headings"
+    ]
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "name": "Electric Violet",
+        "hex": "#7C3AED",
+        "tailwind": "violet-600",
+        "usage": "Primary CTAs, Brand accents"
+      },
+      "secondary": {
+        "name": "Cyber Cyan",
+        "hex": "#06B6D4",
+        "tailwind": "cyan-500",
+        "usage": "Secondary accents, gradients, active states"
+      },
+      "dark_base": {
+        "bg": "#09090B",
+        "card": "#18181B",
+        "border": "#27272A"
+      },
+      "light_base": {
+        "bg": "#F8FAFC",
+        "card": "#FFFFFF",
+        "border": "#E2E8F0"
+      }
+    },
+    "gradients": {
+      "hero_text": "bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent",
+      "card_glow": "hover:shadow-[0_0_30px_-5px_rgba(124,58,237,0.3)]"
+    }
+  },
+  "layout": {
+    "spacing": {
+      "container_padding": "p-6 md:p-12 lg:p-24",
+      "section_gap": "gap-12 md:gap-24",
+      "grid_gap": "gap-6 md:gap-8"
+    },
+    "grids": {
+      "bento_hero": "grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6 auto-rows-[minmax(180px,auto)]",
+      "product_list": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-md shadow-lg shadow-violet-500/20 transition-all hover:scale-[1.02]",
+      "secondary": "bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 rounded-md transition-all",
+      "ghost": "hover:bg-zinc-100 dark:hover:bg-zinc-800 text-foreground transition-colors"
+    },
+    "cards": {
+      "product": "group relative bg-card border border-border rounded-xl overflow-hidden hover:border-violet-500/50 transition-all duration-300",
+      "feature": "bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-2xl p-8"
+    },
+    "inputs": {
+      "default": "bg-background border-input focus:ring-2 focus:ring-violet-500 focus:border-transparent rounded-md"
+    }
+  },
+  "assets": {
+    "hero_images": [
+      "https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxnYW1pbmclMjBwYyUyMHNldHVwJTIwbmVvbiUyMHJnYnxlbnwwfHx8fDE3NjgzODEyMzJ8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1613974089244-916ec6dda17c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHxnYW1pbmclMjBwYyUyMHNldHVwJTIwbmVvbiUyMHJnYnxlbnwwfHx8fDE3NjgzODEyMzJ8MA&ixlib=rb-4.1.0&q=85"
+    ],
+    "products": {
+      "gpu": "https://images.unsplash.com/photo-1757356747708-f11f10dbda7e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwxfHxudmlkaWElMjBydHglMjBncmFwaGljcyUyMGNhcmQlMjBwcm9kdWN0JTIwc2hvdHxlbnwwfHx8fDE3NjgzODEyMzR8MA&ixlib=rb-4.1.0&q=85",
+      "console": "https://images.unsplash.com/photo-1622979138084-c03ae28968ed?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxwbGF5c3RhdGlvbiUyMDUlMjBjb25zb2xlJTIwY29udHJvbGxlcnxlbnwwfHx8fDE3NjgzODEyMzZ8MA&ixlib=rb-4.1.0&q=85",
+      "motherboard": "https://images.unsplash.com/photo-1650526569688-4a655df65834?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxnYW1pbmclMjBtb3RoZXJib2FyZCUyMHJnYnxlbnwwfHx8fDE3NjgzODEyNDh8MA&ixlib=rb-4.1.0&q=85",
+      "keyboard": "https://images.unsplash.com/photo-1763136469649-a2d3c15c7723?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHxtZWNoYW5pY2FsJTIwa2V5Ym9hcmQlMjByZ2IlMjBjdXN0b218ZW58MHx8fHwxNzY4MzgxMjUxfDA&ixlib=rb-4.1.0&q=85",
+      "headset": "https://images.unsplash.com/photo-1660391532247-4a8ad1060817?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwxfHxnYW1pbmclMjBoZWFkc2V0JTIwaGVhZHBob25lc3xlbnwwfHx8fDE3NjgzODEyNTN8MA&ixlib=rb-4.1.0&q=85",
+      "handheld": "https://images.unsplash.com/photo-1654621158365-55fcf7b76fb7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwxfHxzdGVhbSUyMGRlY2slMjBoYW5kaGVsZCUyMGNvbnNvbGV8ZW58MHx8fHwxNzY4MzgxMjU1fDA&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "universal_guidelines": [
+    "Do not use generic centered layouts. Use asymmetry.",
+    "Use 2-3x more spacing than typical designs.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Every interaction needs micro-animations.",
+    "Use 'sonner' for toasts.",
+    "All interactive elements MUST include data-testid attribute.",
+    "Use Lucide React for icons.",
+    "Do not use 'Inter' for headings."
+  ],
+  "instructions_to_main_agent": "You are building GGS (Game Gear Swap). Use the assets provided. Implement the 'Neon & Concrete' aesthetic. Ensure the 'Post Listing' flow includes the mock payment step (₹10). Use the provided image URLs for placeholders. Strictly follow the typography and color rules."
+}
