@@ -106,16 +106,18 @@ class GGSAPITester:
 
     def test_user_signup(self):
         """Test user signup"""
-        test_email = f"test_{datetime.now().strftime('%H%M%S')}@ggs.com"
+        timestamp = datetime.now().strftime('%H%M%S')
+        test_email = f"test_{timestamp}@ggs.com"
         success, response = self.run_test(
             "User Signup",
             "POST",
-            "auth/signup",
+            "auth/register",
             200,
             data={
                 "email": test_email,
                 "password": "testpass123",
-                "name": "Test User"
+                "name": "Test User",
+                "username": f"testuser_{timestamp}"
             }
         )
         return success
@@ -174,6 +176,7 @@ class GGSAPITester:
                 "price": 50000,
                 "condition": "Excellent",
                 "location": "Mumbai",
+                "contact_phone": "+919876543210",
                 "images": ["https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=800"]
             }
         )
@@ -230,9 +233,8 @@ class GGSAPITester:
         success, _ = self.run_test(
             "Add to Wishlist",
             "POST",
-            "wishlist",
-            200,
-            data={"listing_id": listing_id}
+            f"wishlist?listing_id={listing_id}",
+            200
         )
         
         if not success:
