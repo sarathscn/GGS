@@ -2,12 +2,38 @@ version: '3.8'
 
 services:
   mongodb:
-    image: mongo:latest
+    image: mongo:7.0
     container_name: ggs-mongodb
     ports:
       - "27017:27017"
     volumes:
       - ggs-db-data:/data/db
+    restart: always
+
+  backend:
+    build: ./backend
+    container_name: ggs-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=ggs_database
+      - JWT_SECRET=ggs-super-secret-key-2024
+      - CORS_ORIGINS=*
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend/uploads:/app/uploads
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: ggs-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
     restart: always
 
 volumes:

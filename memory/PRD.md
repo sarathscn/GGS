@@ -100,11 +100,11 @@ Kerala's trusted marketplace for buying and selling used gaming gear. Users can 
 - **Invoice Download**: Download payment invoices with full details
 
 ## Technical Stack
-- **Frontend**: React 19, Tailwind CSS, Shadcn/UI, Lucide Icons
-- **Backend**: FastAPI, Motor (async MongoDB)
+- **Frontend**: React 19, Tailwind CSS, Radix UI, Lucide Icons
+- **Backend**: Node.js, Express.js, Mongoose
 - **Database**: MongoDB
-- **Auth**: JWT (PyJWT)
-- **Real-time**: WebSocket (FastAPI native)
+- **Auth**: JWT (jsonwebtoken), bcryptjs
+- **Real-time**: WebSocket (ws native)
 - **Map**: OpenStreetMap (free)
 
 ## API Endpoints (New)

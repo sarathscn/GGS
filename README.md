@@ -1,20 +1,52 @@
-# GGS - Game Gear Swap
+# GGS - Game Gear Swap (MERN Stack)
+
+Kerala's premier marketplace for buying and selling gaming gear, built completely on the **MERN Stack** (MongoDB + Express.js + React.js + Node.js).
+
+## Architecture
+
+- **Database**: MongoDB with Mongoose ODM
+- **Backend**: Node.js + Express.js REST API with WebSocket real-time chat support
+- **Frontend**: React.js 19 with Tailwind CSS, Lucide React, and Radix UI
 
 ## Getting Started
 
-This project requires MongoDB to be running on `localhost:27017`.
-
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+- [Node.js](https://nodejs.org/) (v18+)
+- [MongoDB](https://www.mongodb.com/) (running on `localhost:27017` or via Docker)
 
 ### Database Setup
-1. Open a terminal in the project root.
-2. Run `docker-compose up -d` to start the MongoDB service.
-3. Once the database is running, trigger the seed endpoint (one-time setup):
-   ```powershell
-   Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/seed
+1. Start MongoDB:
+   ```bash
+   docker-compose up -d
+   ```
+2. Seed the database with initial categories, listings, and admin accounts (one-time setup):
+   ```bash
+   # In backend directory or via curl:
+   curl -X POST http://localhost:8000/api/seed
    ```
 
-### Running the Application
-- **Backend**: `cd backend && python -m uvicorn server:app --reload --port 8000`
-- **Frontend**: `cd frontend && npm start`
+### Running the Backend
+```bash
+cd backend
+npm install
+npm start # or npm run dev for nodemon hot-reloading
+```
+The Express backend server runs on `http://localhost:8000`.
+
+### Running the Frontend
+```bash
+cd frontend
+npm install --legacy-peer-deps
+npm start
+```
+The React frontend application runs on `http://localhost:3000`.
+
+### Running Automated Tests
+```bash
+cd backend
+npm test
+```
+
+## Default Credentials
+- **Admin**: `admin@ggs.com` / `admin123`
+- **Demo User**: `user@ggs.com` / `user123`

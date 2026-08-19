@@ -1,0 +1,27 @@
+const express = require('express');
+const router = express.Router();
+const {
+  getListings,
+  getFeaturedListings,
+  getLatestListings,
+  getListing,
+  createListing,
+  updateListing,
+  deleteListing,
+  markListingSold,
+  getMyListings
+} = require('../controllers/listingController');
+const { verifyToken } = require('../middleware/authMiddleware');
+
+router.get('/listings', getListings);
+router.get('/listings/featured', getFeaturedListings);
+router.get('/listings/latest', getLatestListings);
+router.get('/my-listings', verifyToken, getMyListings);
+router.get('/listings/:listing_id', getListing);
+
+router.post('/listings', verifyToken, createListing);
+router.put('/listings/:listing_id', verifyToken, updateListing);
+router.delete('/listings/:listing_id', verifyToken, deleteListing);
+router.post('/listings/:listing_id/mark-sold', verifyToken, markListingSold);
+
+module.exports = router;
