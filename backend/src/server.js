@@ -13,6 +13,12 @@ const PORT = process.env.PORT || 8000;
 async function startServer() {
   await connectDB();
 
+  const OTP = require('./models/OTP');
+  try {
+    await OTP.collection.dropIndex('phone_1');
+  } catch (e) {}
+  await OTP.syncIndexes().catch(() => {});
+
   const server = http.createServer(app);
 
   // Initialize WebSockets

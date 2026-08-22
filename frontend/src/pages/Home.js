@@ -160,7 +160,7 @@ export default function Home() {
               </Button>
             </Link>
             {isAuthenticated ? (
-              <Link to="/sell">
+              <Link to="/post">
                 <Button size="lg" className="bg-cyan-500 hover:bg-cyan-600" data-testid="post-ad-btn">
                   Post Your Ad
                 </Button>
@@ -288,7 +288,7 @@ export default function Home() {
               <Gamepad2 className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
               <h3 className="font-bold text-lg mb-2">No listings yet</h3>
               <p className="text-muted-foreground mb-4">Be the first to post your gaming gear!</p>
-              <Link to="/sell">
+              <Link to="/post">
                 <Button className="bg-violet-600 hover:bg-violet-700">
                   Post Listing
                 </Button>
@@ -349,18 +349,18 @@ export default function Home() {
                 Ready to Sell Your Gaming Gear?
               </h2>
               <p className="text-white/80 mb-6">
-                List your items for just ₹10 and reach thousands of gamers across Kerala. 
+                List your items for just ₹10.00 (incl. GST) and reach thousands of gamers across Kerala. 
                 Fast, simple, and secure.
               </p>
-              <Link to={isAuthenticated ? "/sell" : "/login"}>
+              <Link to={isAuthenticated ? "/post" : "/login"}>
                 <Button size="lg" className="bg-white text-violet-600 hover:bg-white/90" data-testid="cta-sell-btn">
-                  Post Your Ad @ ₹10
+                  Post Your Ad (@ ₹10 incl. GST)
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </Button>
               </Link>
             </div>
-            <div className="absolute right-0 bottom-0 opacity-20">
-              <Gamepad2 className="w-64 h-64" />
+            <div className="absolute right-4 -bottom-10 opacity-20 pointer-events-none">
+              <img src="/ggs-logo.jpg" alt="" className="w-64 h-64 object-contain rounded-3xl mix-blend-overlay" />
             </div>
           </div>
         </div>

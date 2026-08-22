@@ -6,10 +6,12 @@ const {
   completePayment,
   getPaymentHistory,
   getMyPayments,
-  getPaymentInvoice
+  getPaymentInvoice,
+  getPaymentPricingConfig
 } = require('../controllers/paymentController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
+router.get('/payments/pricing-config', getPaymentPricingConfig);
 router.post('/payments/complete', verifyToken, completePaymentDirect);
 router.post('/payments/create', verifyToken, createPayment);
 router.post('/payments/:payment_id/complete', verifyToken, completePayment);

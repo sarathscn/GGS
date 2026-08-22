@@ -5,6 +5,7 @@ const FlaggedMessage = require('../models/FlaggedMessage');
 const User = require('../models/User');
 const filterMessage = require('../utils/filterMessage');
 const wsService = require('../services/websocketService');
+const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
 
 // GET /api/conversations/:conv_id/messages
 const getMessages = async (req, res) => {
@@ -57,6 +58,17 @@ const sendMessage = async (req, res) => {
     const user = req.user;
     const { conversation_id, text, attachment_url, attachment_type } = req.body;
 
+    if (!text && !attachment_url) {
+      return res.status(400).json({ detail: 'Message text or attachment is required' });
+    }
+
+    if (text) {
+      const textCheck = validateFieldLength(text, FIELD_LIMITS.CHAT_MESSAGE, false, 'Message');
+      if (!textCheck.valid) {
+        return res.status(400).json({ detail: textCheck.error });
+      }
+    }
+
     const conv = await Conversation.findOne({ id: conversation_id }).lean();
     if (!conv) {
       return res.status(404).json({ detail: 'Conversation not found' });
@@ -65,7 +77,7 @@ const sendMessage = async (req, res) => {
       return res.status(403).json({ detail: 'Not authorized' });
     }
 
-    const { filteredText, isFlagged } = filterMessage(text);
+    const { filteredText, isFlagged } = filterMessage(text || '');
 
     const msgDoc = new Message({
       id: uuidv4(),

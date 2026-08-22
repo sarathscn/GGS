@@ -18,10 +18,14 @@ const {
   getKYCSubmissions,
   approveKYC,
   rejectKYC,
+  revokeKYC,
+  reverifyKYC,
   getFlaggedMessages,
   reviewFlaggedMessage,
   getAllConversations,
   getConversationMessages,
+  replyToConversation,
+  removeReportedListing,
   exportData
 } = require('../controllers/adminController');
 const { verifyAdmin } = require('../middleware/authMiddleware');
@@ -43,15 +47,20 @@ router.post('/admin/users/bulk', verifyAdmin, bulkUserAction);
 router.post('/admin/listings/bulk', verifyAdmin, bulkListingAction);
 router.post('/admin/reports/bulk', verifyAdmin, bulkReportAction);
 
+router.post('/admin/reports/:report_id/remove-listing', verifyAdmin, removeReportedListing);
+
 router.get('/admin/kyc', verifyAdmin, getKYCSubmissions);
 router.put('/admin/kyc/:kyc_id/approve', verifyAdmin, approveKYC);
 router.put('/admin/kyc/:kyc_id/reject', verifyAdmin, rejectKYC);
+router.put('/admin/kyc/:kyc_id/revoke', verifyAdmin, revokeKYC);
+router.put('/admin/kyc/:kyc_id/reverify', verifyAdmin, reverifyKYC);
 
 router.get('/admin/flagged-messages', verifyAdmin, getFlaggedMessages);
 router.put('/admin/flagged-messages/:flag_id/review', verifyAdmin, reviewFlaggedMessage);
 
 router.get('/admin/conversations', verifyAdmin, getAllConversations);
 router.get('/admin/conversations/:conv_id/messages', verifyAdmin, getConversationMessages);
+router.post('/admin/conversations/:conv_id/reply', verifyAdmin, replyToConversation);
 
 router.get('/admin/export/:export_type', verifyAdmin, exportData);
 

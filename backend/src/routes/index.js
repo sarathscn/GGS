@@ -17,6 +17,7 @@ const blogRoutes = require('./blogRoutes');
 const pageRoutes = require('./pageRoutes');
 const wishlistRoutes = require('./wishlistRoutes');
 const adminRoutes = require('./adminRoutes');
+const supportRoutes = require('./supportRoutes');
 const uploadRoutes = require('./uploadRoutes');
 const seedRoutes = require('./seedRoutes');
 
@@ -37,6 +38,7 @@ router.use('/', kycRoutes);
 router.use('/', reviewRoutes);
 router.use('/', chatReportRoutes);
 router.use('/', reportRoutes);
+router.use('/', supportRoutes);
 router.use('/', blogRoutes);
 router.use('/', pageRoutes);
 router.use('/', wishlistRoutes);

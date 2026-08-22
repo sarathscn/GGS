@@ -30,6 +30,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '../components/ui/tabs';
+import Logo from '../components/Logo';
 import { toast } from 'sonner';
 import {
   LayoutDashboard,
@@ -56,12 +57,18 @@ import {
   UserX,
   UserCheck,
   ShieldCheck,
+  ShieldAlert,
+  ShieldOff,
+  RotateCcw,
+  HelpCircle,
+  Search,
   MoreVertical,
   ExternalLink,
   FileSpreadsheet,
   Receipt,
   AlertTriangle,
-  Plus
+  Plus,
+  Send
 } from 'lucide-react';
 
 // Utility: Export to Excel (CSV)
@@ -642,11 +649,13 @@ function UsersManagement() {
           </DialogHeader>
           
           <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="listings">Listings ({userListings.length})</TabsTrigger>
-              <TabsTrigger value="payments">Payments ({userPayments.length})</TabsTrigger>
-            </TabsList>
+            <div className="w-full overflow-x-auto no-scrollbar pb-1">
+              <TabsList className="bg-muted p-1 inline-flex w-auto min-w-full sm:min-w-0 flex-nowrap gap-1">
+                <TabsTrigger value="overview" className="shrink-0 px-3 py-1.5 text-xs sm:text-sm">Overview</TabsTrigger>
+                <TabsTrigger value="listings" className="shrink-0 px-3 py-1.5 text-xs sm:text-sm">Listings ({userListings.length})</TabsTrigger>
+                <TabsTrigger value="payments" className="shrink-0 px-3 py-1.5 text-xs sm:text-sm">Payments ({userPayments.length})</TabsTrigger>
+              </TabsList>
+            </div>
             
             <TabsContent value="overview" className="p-4 space-y-6">
               <div className="flex flex-col md:flex-row gap-6">
@@ -1029,7 +1038,7 @@ function ListingsManagement() {
   );
 }
 
-// Admin Chat Viewer Component
+// Admin Chat Viewer & Message Reply Component
 function AllChatsManagement() {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1038,6 +1047,9 @@ function AllChatsManagement() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [filter, setFilter] = useState('all'); // 'all' or 'flagged'
+  const [adminReplyText, setAdminReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const messagesContainerRef = useRef(null);
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1056,6 +1068,13 @@ function AllChatsManagement() {
     }
   }, [searchParams, conversations, selectedConv]);
 
+  // Scroll to bottom of message list on new messages
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
   const fetchConversations = async () => {
     try {
       setLoading(true);
@@ -1071,10 +1090,7 @@ function AllChatsManagement() {
 
   const viewConversation = async (conv) => {
     setSelectedConv(conv);
-    
-    // Update URL to match selected conv for shareability
     setSearchParams({ conversation_id: conv.id });
-    
     setMessagesLoading(true);
     try {
       const response = await api.get(`/admin/conversations/${conv.id}/messages`);
@@ -1083,6 +1099,45 @@ function AllChatsManagement() {
       toast.error('Failed to load messages');
     } finally {
       setMessagesLoading(false);
+    }
+  };
+
+  const handleSendAdminReply = async (e) => {
+    if (e) e.preventDefault();
+    if (!adminReplyText.trim() || !selectedConv) return;
+
+    setSendingReply(true);
+    try {
+      const res = await api.post(`/admin/conversations/${selectedConv.id}/reply`, {
+        text: adminReplyText.trim()
+      });
+      const newMsg = res.data;
+      setMessages(prev => [...prev, newMsg]);
+      setAdminReplyText('');
+      toast.success('Admin reply sent');
+
+      setConversations(prev => prev.map(c => 
+        c.id === selectedConv.id 
+          ? { ...c, last_message: newMsg.text, last_message_at: newMsg.created_at, message_count: (c.message_count || 0) + 1 }
+          : c
+      ));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send admin reply');
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  const handleReviewMessage = async (msgId, status) => {
+    setActionLoading(msgId);
+    try {
+      await api.put(`/admin/flagged-messages/${msgId}/review`, { status });
+      toast.success(`Message marked as ${status}`);
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status } : m));
+    } catch (error) {
+      toast.error('Failed to review message');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -1107,11 +1162,11 @@ function AllChatsManagement() {
   return (
     <div data-testid="admin-all-chats">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <h2 className="text-xl font-bold">Chat Monitor</h2>
-        <Tabs value={filter} onValueChange={setFilter} className="w-[300px]">
-          <TabsList className="w-full">
-            <TabsTrigger value="all" className="flex-1">All Chats</TabsTrigger>
-            <TabsTrigger value="flagged" className="flex-1 text-red-500 data-[state=active]:text-red-600">
+        <h2 className="text-xl font-bold">Chat & Support Monitor</h2>
+        <Tabs value={filter} onValueChange={setFilter} className="w-full sm:w-[300px]">
+          <TabsList className="w-full grid grid-cols-2">
+            <TabsTrigger value="all" className="flex-1 text-xs sm:text-sm">All Chats</TabsTrigger>
+            <TabsTrigger value="flagged" className="flex-1 text-xs sm:text-sm text-red-500 data-[state=active]:text-red-600">
               Flagged
             </TabsTrigger>
           </TabsList>
@@ -1122,7 +1177,7 @@ function AllChatsManagement() {
         {/* Conversations List */}
         <div className="bg-card border border-border rounded-xl overflow-hidden h-fit">
           <div className="p-3 border-b border-border bg-muted/50 flex justify-between items-center">
-            <p className="font-medium">Conversations ({conversations.length})</p>
+            <p className="font-medium text-sm">Conversations ({conversations.length})</p>
           </div>
           <div className="max-h-[600px] overflow-y-auto">
             {conversations.map((conv) => (
@@ -1141,7 +1196,7 @@ function AllChatsManagement() {
                           <span className="text-xs font-bold">{p.name?.charAt(0)}</span>
                         )}
                       </div>
-                      <span className="text-sm">{p.name}</span>
+                      <span className="text-sm font-semibold">{p.name}</span>
                       {idx < conv.participants_info.length - 1 && <span className="text-muted-foreground mx-1">↔</span>}
                     </div>
                   ))}
@@ -1157,73 +1212,78 @@ function AllChatsManagement() {
                          <AlertTriangle className="w-3 h-3 mr-1" /> Flagged
                        </Badge>
                     )}
-                    <Badge variant="outline" className="ml-2">{conv.message_count} msgs</Badge>
+                    <Badge variant="outline" className="ml-2">{conv.message_count || 0} msgs</Badge>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{formatDate(conv.last_message_at)}</p>
               </div>
             ))}
             {conversations.length === 0 && (
-              <div className="p-8 text-center text-muted-foreground">
+              <div className="p-8 text-center text-muted-foreground text-sm">
                 No conversations found
               </div>
             )}
           </div>
         </div>
 
-        {/* Messages View */}
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <div className="p-3 border-b border-border bg-muted/50">
-            <p className="font-medium">Messages</p>
+        {/* Messages View & Reply Area */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden flex flex-col h-[600px]">
+          <div className="p-3 border-b border-border bg-muted/50 flex justify-between items-center">
+            <p className="font-medium text-sm">
+              {selectedConv ? `Chat: ${selectedConv.participants_info?.map(p => p.name).join(' & ') || 'Conversation'}` : 'Messages'}
+            </p>
+            {selectedConv?.listing_title && (
+              <Badge variant="outline" className="text-[11px] truncate max-w-[200px]">
+                {selectedConv.listing_title}
+              </Badge>
+            )}
           </div>
-          <div className="max-h-[600px] overflow-y-auto p-4">
+          
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
             {messagesLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-violet-500" />
               </div>
             ) : selectedConv ? (
-              <div className="space-y-3">
+              <>
                 {messages.map((msg) => (
-                  <div key={msg.id} className={`p-3 rounded-lg ${msg.is_flagged ? 'bg-red-500/10 border border-red-500/20' : 'bg-muted/50'}`}>
+                  <div key={msg.id} className={`p-3 rounded-xl ${msg.is_flagged ? 'bg-red-500/10 border border-red-500/20' : 'bg-muted/50 border border-border/40'}`}>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-sm">{msg.sender_name}</span>
-                      <span className="text-xs text-muted-foreground">{formatDate(msg.created_at)}</span>
+                      <span className="font-bold text-xs text-foreground">{msg.sender_name || 'Participant'}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">{formatDate(msg.created_at)}</span>
                     </div>
-                    <p className="text-sm">{msg.text}</p>
+                    <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
                     {msg.original_text && msg.original_text !== msg.text && (
-                      <p className="text-xs text-red-500 mt-1">Original: {msg.original_text}</p>
+                      <p className="text-[11px] text-red-500 mt-1">Original: {msg.original_text}</p>
                     )}
                     {msg.attachment_url && (
-                      <img src={msg.attachment_url} alt="" className="mt-2 max-w-[200px] rounded" />
+                      <img src={msg.attachment_url} alt="" className="mt-2 max-w-[200px] rounded-lg border border-border" />
                     )}
                     {msg.is_flagged && (
-                      <div className="mt-3">
-                        <Badge variant="outline" className={`mb-2 ${
-                            msg.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                            msg.status === 'reviewed' ? 'bg-emerald-500/10 text-emerald-500' :
+                      <div className="mt-2.5 pt-2 border-t border-red-500/20 flex items-center justify-between">
+                        <Badge variant="outline" className={`text-[10px] ${
+                            msg.status === 'pending' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+                            msg.status === 'reviewed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
                             'bg-gray-500/10 text-gray-500'
                           }`}>
                           Flagged: {msg.status || 'pending'}
                         </Badge>
                         
                         {(!msg.status || msg.status === 'pending') && (
-                          <div className="flex gap-2">
+                          <div className="flex gap-1.5">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="bg-emerald-600/10 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-600/20"
+                              className="h-7 text-xs bg-emerald-600/10 text-emerald-600 hover:bg-emerald-600 hover:text-white border-emerald-600/20"
                               onClick={() => handleReviewMessage(msg.id, 'reviewed')}
                               disabled={actionLoading === msg.id}
                             >
-                              {actionLoading === msg.id ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                'Mark Reviewed'
-                              )}
+                              {actionLoading === msg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Mark Reviewed'}
                             </Button>
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-7 text-xs"
                               onClick={() => handleReviewMessage(msg.id, 'dismissed')}
                               disabled={actionLoading === msg.id}
                             >
@@ -1236,30 +1296,56 @@ function AllChatsManagement() {
                   </div>
                 ))}
                 {messages.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">No messages in this conversation</p>
+                  <p className="text-center text-muted-foreground py-8 text-xs">No messages in this conversation</p>
                 )}
-              </div>
+              </>
             ) : (
-              <div className="text-center text-muted-foreground py-12">
-                <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>Select a conversation to view messages</p>
+              <div className="text-center text-muted-foreground py-16">
+                <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-40 text-violet-500" />
+                <p className="text-sm font-semibold">Select a conversation to view and reply</p>
               </div>
             )}
           </div>
+
+          {/* Admin Reply Input Form */}
+          {selectedConv && (
+            <form onSubmit={handleSendAdminReply} className="p-3 border-t border-border bg-card flex gap-2 items-center">
+              <Input
+                type="text"
+                placeholder="Type an official admin reply..."
+                value={adminReplyText}
+                onChange={(e) => setAdminReplyText(e.target.value)}
+                className="flex-1 text-xs sm:text-sm bg-background"
+                disabled={sendingReply}
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={sendingReply || !adminReplyText.trim()}
+                className="bg-violet-600 hover:bg-violet-700 text-white font-bold h-9 px-3 flex items-center gap-1.5"
+              >
+                {sendingReply ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span>Send</span>
+              </Button>
+            </form>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Enhanced Reports Management with Navigation
+// Enhanced Reports Management with Listing Removal & Navigation
 function ReportsManagement() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
   const [actionLoading, setActionLoading] = useState(null);
   const [selectedReports, setSelectedReports] = useState([]);
-  const navigate = useNavigate();
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [selectedReportForRemoval, setSelectedReportForRemoval] = useState(null);
+  const [removalReason, setRemovalReason] = useState('Listing removed due to community violation report');
+  const [removing, setRemoving] = useState(false);
 
   useEffect(() => {
     fetchReports();
@@ -1281,12 +1367,36 @@ function ReportsManagement() {
     setActionLoading(reportId);
     try {
       await api.put(`/admin/reports/${reportId}?status=${action}`);
-      toast.success('Report updated');
+      toast.success(`Report marked as ${action}`);
       fetchReports();
     } catch (error) {
       toast.error('Failed to update report');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const openRemoveDialog = (report) => {
+    setSelectedReportForRemoval(report);
+    setRemovalReason(`Listing removed due to report: ${report.reason || 'policy violation'}`);
+    setShowRemoveModal(true);
+  };
+
+  const handleConfirmRemoveListing = async () => {
+    if (!selectedReportForRemoval) return;
+    setRemoving(true);
+    try {
+      await api.post(`/admin/reports/${selectedReportForRemoval.id}/remove-listing`, {
+        reason: removalReason
+      });
+      toast.success('Listing removed and report resolved');
+      setShowRemoveModal(false);
+      setSelectedReportForRemoval(null);
+      fetchReports();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to remove listing');
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -1319,6 +1429,7 @@ function ReportsManagement() {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return '';
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
@@ -1382,38 +1493,69 @@ function ReportsManagement() {
               <div className="flex-1">
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <p className="font-medium">Report #{report.id.slice(0, 8)}</p>
-                    <p className="text-sm text-muted-foreground">{formatDate(report.created_at)}</p>
+                    <p className="font-bold text-sm">Report #{report.id.slice(0, 8)}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(report.created_at)} • Reported by <span className="font-semibold text-foreground">{report.reporter_name || 'User'}</span></p>
                   </div>
                   <Badge variant="outline" className={
-                    report.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                    report.status === 'resolved' ? 'bg-emerald-500/10 text-emerald-500' :
+                    report.status === 'pending' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+                    report.status === 'resolved' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
                     'bg-gray-500/10 text-gray-500'
                   }>
                     {report.status}
                   </Badge>
                 </div>
-                <p className="text-sm mb-2"><strong>Reason:</strong> {report.reason}</p>
-                {report.details && (
-                  <p className="text-sm text-muted-foreground mb-3">{report.details}</p>
+                
+                {report.listing_title && (
+                  <p className="text-xs sm:text-sm font-medium text-violet-400 mb-1">
+                    Listing: <strong>{report.listing_title}</strong>
+                  </p>
                 )}
-                <div className="flex flex-wrap gap-2">
-                  <Link to={`/listing/${report.target_id}`} target="_blank">
-                    <Button variant="outline" size="sm">
-                      <Eye className="w-4 h-4 mr-1" />
-                      View Listing
+
+                <p className="text-xs sm:text-sm mb-2"><strong>Reason:</strong> <span className="text-rose-400 font-semibold">{report.reason}</span></p>
+                {report.details && (
+                  <p className="text-xs sm:text-sm text-muted-foreground mb-3 bg-muted/40 p-2.5 rounded-lg border border-border/50">{report.details}</p>
+                )}
+                
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40">
+                  {/* Direct Link to View Listing */}
+                  {report.target_type === 'listing' && report.target_id && (
+                    <a 
+                      href={`/listing/${report.target_id}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                    >
+                      <Button variant="outline" size="sm" className="h-8 text-xs flex items-center gap-1.5 hover:bg-muted">
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View Listing</span>
+                        <ExternalLink className="w-3 h-3 opacity-60" />
+                      </Button>
+                    </a>
+                  )}
+
+                  {/* Direct Action to Remove Listing */}
+                  {report.target_type === 'listing' && report.target_id && report.status === 'pending' && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-8 text-xs bg-red-600 hover:bg-red-700 text-white font-bold flex items-center gap-1.5"
+                      onClick={() => openRemoveDialog(report)}
+                      disabled={removing}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Remove Listing</span>
                     </Button>
-                  </Link>
+                  )}
+
                   {report.status === 'pending' && (
                     <>
                       <Button
                         size="sm"
-                        className="bg-emerald-600 hover:bg-emerald-700"
+                        className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
                         onClick={() => handleReview(report.id, 'resolved')}
                         disabled={actionLoading === report.id}
                       >
                         {actionLoading === report.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           'Mark Resolved'
                         )}
@@ -1421,6 +1563,7 @@ function ReportsManagement() {
                       <Button
                         size="sm"
                         variant="outline"
+                        className="h-8 text-xs"
                         onClick={() => handleReview(report.id, 'dismissed')}
                         disabled={actionLoading === report.id}
                       >
@@ -1435,24 +1578,80 @@ function ReportsManagement() {
         ))}
         {reports.length === 0 && (
           <div className="text-center py-12 bg-card rounded-xl border border-border">
-            <Flag className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No reports found</p>
+            <Flag className="w-16 h-16 mx-auto text-muted-foreground mb-4 opacity-40" />
+            <p className="text-muted-foreground text-sm font-semibold">No reports found</p>
           </div>
         )}
       </div>
+
+      {/* Confirmation Dialog for Destructive Listing Removal */}
+      <Dialog open={showRemoveModal} onOpenChange={setShowRemoveModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-500 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Remove Reported Listing?
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently unpublish and remove this listing from the marketplace? This will resolve the report and update the listing status to deleted.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedReportForRemoval && (
+            <div className="space-y-3 py-2">
+              <div className="p-3 bg-muted/50 rounded-lg border border-border text-xs space-y-1">
+                <p><strong>Listing:</strong> {selectedReportForRemoval.listing_title || selectedReportForRemoval.target_id}</p>
+                <p><strong>Reported Reason:</strong> {selectedReportForRemoval.reason}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="removal-reason" className="text-xs">Moderation Note / Reason</Label>
+                <Input
+                  id="removal-reason"
+                  value={removalReason}
+                  onChange={(e) => setRemovalReason(e.target.value)}
+                  placeholder="Enter reason for removal..."
+                  className="text-xs"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowRemoveModal(false)} disabled={removing}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmRemoveListing}
+              disabled={removing}
+              className="bg-red-600 hover:bg-red-700 font-bold"
+            >
+              {removing ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Trash2 className="w-4 h-4 mr-1.5" />}
+              Confirm Removal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// KYC Management Component
+// Upgraded KYC & Seller Verification Management Component
 function KYCManagement() {
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('pending');
+  const [filter, setFilter] = useState('all');
   const [actionLoading, setActionLoading] = useState(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  
+  // Dialog States
   const [selectedKYC, setSelectedKYC] = useState(null);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRevokeDialog, setShowRevokeDialog] = useState(false);
+  const [revokeReason, setRevokeReason] = useState('');
+  const [showReverifyDialog, setShowReverifyDialog] = useState(false);
+  const [reverifyReason, setReverifyReason] = useState('');
 
   useEffect(() => {
     fetchSubmissions();
@@ -1474,7 +1673,7 @@ function KYCManagement() {
     setActionLoading(kycId);
     try {
       await api.put(`/admin/kyc/${kycId}/approve`);
-      toast.success('KYC approved');
+      toast.success('Seller verified and KYC approved');
       fetchSubmissions();
     } catch (error) {
       toast.error('Failed to approve KYC');
@@ -1487,7 +1686,7 @@ function KYCManagement() {
     if (!selectedKYC) return;
     setActionLoading(selectedKYC.id);
     try {
-      await api.put(`/admin/kyc/${selectedKYC.id}/reject?reason=${encodeURIComponent(rejectReason)}`);
+      await api.put(`/admin/kyc/${selectedKYC.id}/reject`, { reason: rejectReason || 'Invalid or unclear documents' });
       toast.success('KYC rejected');
       setShowRejectDialog(false);
       setRejectReason('');
@@ -1499,12 +1698,62 @@ function KYCManagement() {
     }
   };
 
+  const handleRevoke = async () => {
+    if (!selectedKYC) return;
+    setActionLoading(selectedKYC.id);
+    try {
+      await api.put(`/admin/kyc/${selectedKYC.id}/revoke`, { reason: revokeReason || 'Seller verification revoked by admin' });
+      toast.success('Seller verification status revoked');
+      setShowRevokeDialog(false);
+      setRevokeReason('');
+      fetchSubmissions();
+    } catch (error) {
+      toast.error('Failed to revoke verification');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReverify = async () => {
+    if (!selectedKYC) return;
+    setActionLoading(selectedKYC.id);
+    try {
+      await api.put(`/admin/kyc/${selectedKYC.id}/reverify`, { reason: reverifyReason || 'Please upload clear updated documents' });
+      toast.success('Re-verification request sent to seller');
+      setShowReverifyDialog(false);
+      setReverifyReason('');
+      fetchSubmissions();
+    } catch (error) {
+      toast.error('Failed to request re-verification');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
     });
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'approved':
+        return <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">Verified / Approved</Badge>;
+      case 'pending':
+        return <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">Pending Review</Badge>;
+      case 'rejected':
+        return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Rejected</Badge>;
+      case 'revoked':
+        return <Badge className="bg-rose-600/10 text-rose-500 border-rose-500/30">Revoked</Badge>;
+      case 'reverification_requested':
+        return <Badge className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Re-verify Requested</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
   };
 
   if (loading) {
@@ -1516,131 +1765,586 @@ function KYCManagement() {
   }
 
   return (
-    <div data-testid="admin-kyc">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <h2 className="text-xl font-bold">KYC Verification</h2>
+    <div data-testid="admin-kyc" className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-foreground">Seller Verification & KYC Queue</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Admin-only review and approval of seller trust verification</p>
+        </div>
+
         <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Filter" />
+          <SelectTrigger className="w-[180px] rounded-xl">
+            <SelectValue placeholder="Filter Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="all">All Verification Records</SelectItem>
+            <SelectItem value="pending">Pending Review</SelectItem>
+            <SelectItem value="approved">Approved (Verified)</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="revoked">Revoked</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-4 text-sm">
-        <strong>Privacy Notice:</strong> KYC documents are confidential. Only last 4 digits of document numbers are displayed.
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+        <strong>Privacy & Security Compliance:</strong> KYC identity files are strictly restricted to administrators. Document numbers are permanently masked to protect user privacy.
       </div>
 
       <div className="space-y-4">
         {submissions.map((kyc) => (
-          <div key={kyc.id} className="bg-card border border-border rounded-xl p-4">
-            <div className="flex items-start justify-between mb-3">
+          <div key={kyc.id} className="bg-card border border-border rounded-xl p-5 shadow-sm">
+            <div className="flex items-start justify-between mb-3 gap-3">
               <div>
-                <p className="font-medium">{kyc.user_name || 'Unknown User'}</p>
-                <p className="text-sm text-muted-foreground">{kyc.user_email}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-base text-foreground">{kyc.user_name || 'Unknown User'}</p>
+                  {getStatusBadge(kyc.status)}
+                </div>
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">{kyc.user_email || 'No email provided'}</p>
               </div>
-              <Badge variant="outline" className={
-                kyc.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                kyc.status === 'approved' ? 'bg-emerald-500/10 text-emerald-500' :
-                'bg-red-500/10 text-red-500'
-              }>
-                {kyc.status}
-              </Badge>
+
+              <span className="text-xs text-muted-foreground shrink-0 font-mono">
+                Submitted: {formatDate(kyc.created_at)}
+              </span>
             </div>
-            <div className="grid grid-cols-2 gap-4 mb-3 text-sm">
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 p-3 bg-muted/40 rounded-lg text-xs">
               <div>
-                <span className="text-muted-foreground">Document Type:</span>
-                <p className="font-medium capitalize">{kyc.document_type?.replace('_', ' ')}</p>
+                <span className="text-muted-foreground block">Document Type:</span>
+                <span className="font-semibold capitalize text-foreground">{kyc.document_type?.replace('_', ' ')}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Document Number:</span>
-                <p className="font-mono">****{kyc.document_number}</p>
+                <span className="text-muted-foreground block">Masked ID Number:</span>
+                <span className="font-mono font-bold text-foreground">****{kyc.document_number}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Submitted:</span>
-                <p>{formatDate(kyc.created_at)}</p>
+                <span className="text-muted-foreground block">Document Attachment:</span>
+                {kyc.document_image_url ? (
+                  <a 
+                    href={kyc.document_image_url} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-violet-500 hover:underline font-semibold flex items-center gap-1 mt-0.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> View Uploaded ID
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">No image attached</span>
+                )}
               </div>
             </div>
-            {kyc.document_image_url && (
-              <div className="mb-3">
-                <a href={kyc.document_image_url} target="_blank" rel="noopener noreferrer" className="text-violet-500 hover:underline text-sm flex items-center gap-1">
-                  <Eye className="w-4 h-4" /> View Document
-                </a>
+
+            {/* Rejection / Revocation Reason */}
+            {kyc.rejection_reason && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-600 dark:text-red-400 mb-3">
+                <strong>Admin Moderation Note:</strong> {kyc.rejection_reason}
               </div>
             )}
-            {kyc.status === 'pending' && (
-              <div className="flex gap-2">
+
+            {/* Action Bar */}
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+              {kyc.status !== 'approved' && (
                 <Button
                   size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700"
+                  className="bg-emerald-600 hover:bg-emerald-700 font-semibold text-xs h-8"
                   onClick={() => handleApprove(kyc.id)}
                   disabled={actionLoading === kyc.id}
                 >
                   {actionLoading === kyc.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
                   ) : (
-                    <>
-                      <Check className="w-4 h-4 mr-1" />
-                      Approve
-                    </>
+                    <Check className="w-3.5 h-3.5 mr-1" />
                   )}
+                  Approve Verification
                 </Button>
+              )}
+
+              {kyc.status === 'pending' && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-red-500"
+                  className="text-red-500 hover:bg-red-500/10 font-semibold text-xs h-8"
                   onClick={() => {
                     setSelectedKYC(kyc);
                     setShowRejectDialog(true);
                   }}
                 >
-                  <X className="w-4 h-4 mr-1" />
+                  <X className="w-3.5 h-3.5 mr-1" />
                   Reject
                 </Button>
-              </div>
-            )}
-            {kyc.rejection_reason && (
-              <p className="text-sm text-red-500 mt-2">
-                <strong>Rejection Reason:</strong> {kyc.rejection_reason}
-              </p>
-            )}
+              )}
+
+              {kyc.status === 'approved' && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-rose-500 hover:bg-rose-500/10 border-rose-500/30 font-semibold text-xs h-8"
+                    onClick={() => {
+                      setSelectedKYC(kyc);
+                      setShowRevokeDialog(true);
+                    }}
+                  >
+                    <ShieldOff className="w-3.5 h-3.5 mr-1" />
+                    Revoke Verification
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-cyan-500 hover:bg-cyan-500/10 font-semibold text-xs h-8"
+                    onClick={() => {
+                      setSelectedKYC(kyc);
+                      setShowReverifyDialog(true);
+                    }}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                    Request Re-verification
+                  </Button>
+                </>
+              )}
+
+              {(kyc.status === 'rejected' || kyc.status === 'revoked') && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-cyan-500 hover:bg-cyan-500/10 font-semibold text-xs h-8"
+                  onClick={() => {
+                    setSelectedKYC(kyc);
+                    setShowReverifyDialog(true);
+                  }}
+                >
+                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                  Allow Re-submission
+                </Button>
+              )}
+            </div>
           </div>
         ))}
+
         {submissions.length === 0 && (
-          <div className="text-center py-12 bg-card rounded-xl border border-border">
-            <Shield className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No KYC submissions found</p>
+          <div className="text-center py-16 bg-card rounded-2xl border border-border">
+            <ShieldCheck className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+            <h3 className="font-bold text-base text-foreground">No verification submissions</h3>
+            <p className="text-xs text-muted-foreground mt-1">There are no seller KYC requests matching the selected filter.</p>
           </div>
         )}
       </div>
 
       {/* Reject Dialog */}
       <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Reject KYC</DialogTitle>
+            <DialogTitle>Reject KYC Submission</DialogTitle>
             <DialogDescription>
-              Provide a reason for rejecting this KYC submission.
+              Provide an explanation for rejecting this user's verification documents.
             </DialogDescription>
           </DialogHeader>
           <Textarea
-            placeholder="Rejection reason..."
+            placeholder="e.g. Document image is blurry, name does not match profile, or expired ID..."
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
+            className="rounded-xl"
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancel</Button>
             <Button 
-              className="bg-red-600 hover:bg-red-700" 
+              className="bg-red-600 hover:bg-red-700 font-bold" 
               onClick={handleReject}
-              disabled={!rejectReason || actionLoading}
+              disabled={actionLoading}
             >
-              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Reject'}
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : 'Confirm Rejection'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke Dialog */}
+      <Dialog open={showRevokeDialog} onOpenChange={setShowRevokeDialog}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-rose-500 flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5" />
+              Revoke Seller Verification
+            </DialogTitle>
+            <DialogDescription>
+              This will remove the Verified Seller trust badge from this user's account and all their active listings.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Reason for revoking verification (e.g. Fraudulent behavior, scam report, or terms violation)..."
+            value={revokeReason}
+            onChange={(e) => setRevokeReason(e.target.value)}
+            rows={3}
+            className="rounded-xl"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRevokeDialog(false)}>Cancel</Button>
+            <Button 
+              className="bg-rose-600 hover:bg-rose-700 font-bold" 
+              onClick={handleRevoke}
+              disabled={actionLoading}
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : 'Revoke Status'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Re-verify Dialog */}
+      <Dialog open={showReverifyDialog} onOpenChange={setShowReverifyDialog}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Request Re-verification</DialogTitle>
+            <DialogDescription>
+              Prompt the seller to re-upload fresh or updated identification documents.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Instructions for seller (e.g. Please upload clear front and back of Aadhaar/Passport)..."
+            value={reverifyReason}
+            onChange={(e) => setReverifyReason(e.target.value)}
+            rows={3}
+            className="rounded-xl"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReverifyDialog(false)}>Cancel</Button>
+            <Button 
+              className="bg-cyan-600 hover:bg-cyan-700 font-bold" 
+              onClick={handleReverify}
+              disabled={actionLoading}
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : 'Send Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Support Tickets Management Component
+function SupportTicketsManagement() {
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [adminNotes, setAdminNotes] = useState('');
+  const [ticketStatus, setTicketStatus] = useState('open');
+  const [ticketPriority, setTicketPriority] = useState('medium');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    fetchTickets();
+  }, [filterStatus, filterCategory]);
+
+  const fetchTickets = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (filterStatus !== 'all') params.append('status', filterStatus);
+      if (filterCategory !== 'all') params.append('category', filterCategory);
+
+      const response = await api.get(`/admin/support?${params.toString()}`);
+      setTickets(response.data);
+    } catch (error) {
+      console.error('Failed to fetch support tickets:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateTicket = async () => {
+    if (!selectedTicket) return;
+    setActionLoading(true);
+    try {
+      await api.put(`/admin/support/${selectedTicket.id}`, {
+        status: ticketStatus,
+        priority: ticketPriority,
+        admin_notes: adminNotes
+      });
+      toast.success('Support ticket updated');
+      setSelectedTicket(null);
+      fetchTickets();
+    } catch (error) {
+      toast.error('Failed to update support ticket');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const openTicketModal = (ticket) => {
+    setSelectedTicket(ticket);
+    setTicketStatus(ticket.status || 'open');
+    setTicketPriority(ticket.priority || 'medium');
+    setAdminNotes(ticket.admin_notes || '');
+  };
+
+  const filteredTickets = tickets.filter(t => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      t.ticket_number?.toLowerCase().includes(q) ||
+      t.user_name?.toLowerCase().includes(q) ||
+      t.user_email?.toLowerCase().includes(q) ||
+      t.subject?.toLowerCase().includes(q) ||
+      t.description?.toLowerCase().includes(q) ||
+      t.listing_id?.toLowerCase().includes(q)
+    );
+  });
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getPriorityBadge = (p) => {
+    switch (p) {
+      case 'urgent': return <Badge className="bg-red-500 text-white font-bold">Urgent</Badge>;
+      case 'high': return <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20">High</Badge>;
+      case 'medium': return <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">Medium</Badge>;
+      default: return <Badge variant="outline">Low</Badge>;
+    }
+  };
+
+  const getStatusBadge = (s) => {
+    switch (s) {
+      case 'open': return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Open</Badge>;
+      case 'in_progress': return <Badge className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">In Progress</Badge>;
+      case 'resolved': return <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">Resolved</Badge>;
+      case 'closed': return <Badge variant="outline" className="text-muted-foreground">Closed</Badge>;
+      default: return <Badge variant="outline">{s}</Badge>;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid="admin-support-tickets" className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-foreground">Support & Inquiries Queue</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Manage user requests, fake deal reports, and technical inquiries</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => exportToExcel(tickets, 'ggs_support_tickets')}
+            className="text-xs font-semibold"
+          >
+            <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search ticket #, name, subject..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-10 rounded-xl"
+          />
+        </div>
+
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="h-10 rounded-xl">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="resolved">Resolved</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={filterCategory} onValueChange={setFilterCategory}>
+          <SelectTrigger className="h-10 rounded-xl">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="Scam/fraud report">Scam / Fraud</SelectItem>
+            <SelectItem value="Fake deal">Fake Deal</SelectItem>
+            <SelectItem value="Fake sale">Fake Sale</SelectItem>
+            <SelectItem value="Payment issue">Payment Issue</SelectItem>
+            <SelectItem value="Listing issue">Listing Issue</SelectItem>
+            <SelectItem value="Verification issue">Verification Issue</SelectItem>
+            <SelectItem value="Technical issue">Technical Bug</SelectItem>
+            <SelectItem value="Other support request">Other</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Tickets List */}
+      <div className="space-y-3">
+        {filteredTickets.map((ticket) => (
+          <div key={ticket.id} className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm hover:border-violet-500/40 transition-all">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono font-bold text-sm text-violet-500">{ticket.ticket_number}</span>
+                {getStatusBadge(ticket.status)}
+                {getPriorityBadge(ticket.priority)}
+                <Badge variant="outline" className="text-[11px]">{ticket.category}</Badge>
+              </div>
+
+              <span className="text-xs text-muted-foreground font-mono">
+                {formatDate(ticket.created_at)}
+              </span>
+            </div>
+
+            <h3 className="font-bold text-base text-foreground mb-1">{ticket.subject}</h3>
+            <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mb-3 leading-relaxed">
+              {ticket.description}
+            </p>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-border text-xs text-muted-foreground">
+              <div>
+                <span>User: </span>
+                <strong className="text-foreground">{ticket.user_name}</strong> ({ticket.user_email})
+                {ticket.listing_id && (
+                  <span className="ml-2">| Ref Listing: <code className="font-mono text-violet-400">{ticket.listing_id}</code></span>
+                )}
+                {ticket.transaction_id && (
+                  <span className="ml-2">| Ref Txn: <code className="font-mono text-cyan-400">{ticket.transaction_id}</code></span>
+                )}
+              </div>
+
+              <Button size="sm" variant="outline" onClick={() => openTicketModal(ticket)} className="h-8 text-xs font-semibold">
+                Manage Ticket
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {filteredTickets.length === 0 && (
+          <div className="text-center py-16 bg-card rounded-2xl border border-border">
+            <HelpCircle className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+            <h3 className="font-bold text-base text-foreground">No support tickets found</h3>
+            <p className="text-xs text-muted-foreground mt-1">There are no tickets matching your filter criteria.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Ticket Details & Action Dialog */}
+      <Dialog open={!!selectedTicket} onOpenChange={(open) => !open && setSelectedTicket(null)}>
+        <DialogContent className="max-w-2xl rounded-2xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Ticket {selectedTicket?.ticket_number}</DialogTitle>
+              {selectedTicket && getStatusBadge(ticketStatus)}
+            </div>
+            <DialogDescription>
+              Submitted on {formatDate(selectedTicket?.created_at)} by {selectedTicket?.user_name} ({selectedTicket?.user_email})
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTicket && (
+            <div className="space-y-4 py-2">
+              <div className="p-3 bg-muted/40 rounded-xl space-y-1.5 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Category: </span>
+                  <strong className="text-foreground">{selectedTicket.category}</strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Subject: </span>
+                  <strong className="text-foreground">{selectedTicket.subject}</strong>
+                </div>
+                {selectedTicket.listing_id && (
+                  <div>
+                    <span className="text-muted-foreground">Listing ID: </span>
+                    <a href={`/listing/${selectedTicket.listing_id}`} target="_blank" rel="noopener noreferrer" className="text-violet-500 font-mono underline">
+                      {selectedTicket.listing_id}
+                    </a>
+                  </div>
+                )}
+                {selectedTicket.transaction_id && (
+                  <div>
+                    <span className="text-muted-foreground">Transaction ID: </span>
+                    <span className="font-mono text-cyan-400">{selectedTicket.transaction_id}</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider block mb-1">User Description</Label>
+                <div className="p-3.5 bg-card border border-border rounded-xl text-xs sm:text-sm text-foreground whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                  {selectedTicket.description}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <Select value={ticketStatus} onValueChange={setTicketStatus}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="resolved">Resolved</SelectItem>
+                      <SelectItem value="closed">Closed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Priority</Label>
+                  <Select value={ticketPriority} onValueChange={setTicketPriority}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Internal Moderation Notes</Label>
+                <Textarea
+                  placeholder="Notes on actions taken, resolution details, or user communications..."
+                  value={adminNotes}
+                  onChange={(e) => setAdminNotes(e.target.value)}
+                  rows={3}
+                  className="rounded-xl"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedTicket(null)}>Close</Button>
+            <Button 
+              className="bg-violet-600 hover:bg-violet-700 font-bold" 
+              onClick={handleUpdateTicket}
+              disabled={actionLoading}
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2310,47 +3014,58 @@ export default function AdminDashboard() {
     { path: '', label: 'Overview', icon: LayoutDashboard },
     { path: '/users', label: 'Users', icon: Users },
     { path: '/listings', label: 'Listings', icon: Package },
-    { path: '/kyc', label: 'KYC Verify', icon: Shield },
+    { path: '/kyc', label: 'KYC & Verification', icon: ShieldCheck },
+    { path: '/support-tickets', label: 'Support Tickets', icon: HelpCircle },
     { path: '/reports', label: 'Ad Reports', icon: Flag },
     { path: '/all-chats', label: 'All Chats', icon: MessageCircle },
     { path: '/payments', label: 'Payments', icon: CreditCard },
     { path: '/categories', label: 'Categories', icon: FolderOpen },
-    { path: '/pages', label: 'Pages', icon: FileText },
+    { path: '/pages', label: 'Pages & Policies', icon: FileText },
   ];
 
   return (
     <div className="min-h-screen py-8" data-testid="admin-dashboard">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-lg bg-violet-600 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-white" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-6 border-b border-border">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-violet-600/10 border border-violet-500/20 flex items-center justify-center text-violet-500 shrink-0">
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-foreground">Admin Control Center</h1>
+              <p className="text-xs text-muted-foreground">Manage users, verification, listings, support, and payments</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black">Admin Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Manage GGS Platform</p>
+
+          <div className="flex items-center gap-2">
+            <Link to="/marketplace">
+              <Button variant="outline" size="sm" className="text-xs font-semibold">
+                View Marketplace
+              </Button>
+            </Link>
           </div>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Sidebar */}
           <nav className="lg:w-64 flex-shrink-0">
-            <div className="bg-card border border-border rounded-xl p-2 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible">
+            <div className="bg-card border border-border rounded-xl p-2 flex lg:flex-col gap-1 overflow-x-auto no-scrollbar lg:overflow-visible">
               {navItems.map((item) => {
                 const isActive = currentPath === item.path;
                 return (
                   <Link
                     key={item.path}
                     to={`/admin${item.path}`}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg whitespace-nowrap transition-colors shrink-0 ${
                       isActive
-                        ? 'bg-violet-600 text-white'
+                        ? 'bg-violet-600 text-white font-bold'
                         : 'hover:bg-muted text-muted-foreground hover:text-foreground'
                     }`}
                     data-testid={`nav-${item.path.replace('/', '') || 'overview'}`}
                   >
-                    <item.icon className="w-5 h-5" />
-                    <span className="font-medium">{item.label}</span>
+                    <item.icon className="w-5 h-5 shrink-0" />
+                    <span className="font-medium text-sm">{item.label}</span>
                   </Link>
                 );
               })}
@@ -2364,6 +3079,7 @@ export default function AdminDashboard() {
               <Route path="users" element={<UsersManagement />} />
               <Route path="listings" element={<ListingsManagement />} />
               <Route path="kyc" element={<KYCManagement />} />
+              <Route path="support-tickets" element={<SupportTicketsManagement />} />
               <Route path="reports" element={<ReportsManagement />} />
               <Route path="all-chats" element={<AllChatsManagement />} />
               <Route path="payments" element={<PaymentsManagement />} />

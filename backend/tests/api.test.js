@@ -79,7 +79,7 @@ async function runAllTests() {
   await tester.runTest('API Health Check', 'GET', '', 200);
 
   // 2. Database Seeding
-  await tester.runTest('Seed Database', 'POST', 'seed', 200);
+  await tester.runTest('Seed Database', 'POST', 'seed?force=true', 200);
 
   // 3. Admin Login
   const adminLogin = await tester.runTest(
@@ -120,7 +120,7 @@ async function runAllTests() {
       email: testEmail,
       password: 'testpass123',
       name: 'Test Auto User',
-      username: `testuser_${timestamp}`
+      username: `u_${timestamp}`
     }
   );
 
@@ -207,7 +207,11 @@ async function runAllTests() {
           'POST',
           `payments/${paymentId}/complete`,
           200,
-          { payment_method: 'upi' }
+          { 
+            payment_method: 'upi',
+            policy_accepted: true,
+            policy_version: 'v1.0'
+          }
         );
 
         // Get Invoice

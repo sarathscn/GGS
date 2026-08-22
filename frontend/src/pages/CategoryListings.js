@@ -99,14 +99,14 @@ export default function CategoryListings() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4 mb-8 p-4 bg-card rounded-xl border border-border">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-8 p-4 bg-card rounded-xl border border-border">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">Filters:</span>
           </div>
           
           <Select value={condition} onValueChange={setCondition}>
-            <SelectTrigger className="w-[140px]" data-testid="condition-filter">
+            <SelectTrigger className="w-[130px] sm:w-[140px]" data-testid="condition-filter">
               <SelectValue placeholder="Condition" />
             </SelectTrigger>
             <SelectContent>
@@ -119,7 +119,7 @@ export default function CategoryListings() {
           </Select>
 
           <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-[140px]" data-testid="sort-filter">
+            <SelectTrigger className="w-[130px] sm:w-[140px]" data-testid="sort-filter">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
@@ -140,17 +140,19 @@ export default function CategoryListings() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-16">
-            <Gamepad2 className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <h3 className="font-bold text-lg mb-2">No listings found</h3>
-            <p className="text-muted-foreground mb-4">
+          <div className="text-center py-16 bg-card border border-border rounded-2xl p-8">
+            <div className="w-16 h-16 rounded-2xl bg-white/95 dark:bg-zinc-900 border border-border flex items-center justify-center mx-auto mb-4 p-1 shadow-sm">
+              <img src="/ggs-logo.jpg" alt="" className="w-full h-full object-contain rounded-xl" />
+            </div>
+            <h3 className="font-bold text-lg mb-1 text-foreground">No listings found</h3>
+            <p className="text-muted-foreground text-sm mb-4">
               {condition !== 'all' 
                 ? `No ${condition.toLowerCase()} items in this category yet.`
                 : 'No items in this category yet.'}
             </p>
-            <Link to="/post-listing">
-              <Button className="bg-violet-600 hover:bg-violet-700">
-                Post the First Listing
+            <Link to="/post">
+              <Button className="bg-violet-600 hover:bg-violet-700 font-bold text-xs h-10 px-4 rounded-xl">
+                Post the First Listing (@ ₹10 incl. GST)
               </Button>
             </Link>
           </div>
