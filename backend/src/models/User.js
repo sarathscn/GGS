@@ -13,6 +13,11 @@ const userSchema = new mongoose.Schema(
     role: { type: String, default: 'user' }, // user, seller, admin
     is_verified: { type: Boolean, default: false },
     is_seller_verified: { type: Boolean, default: false },
+    is_email_verified: { type: Boolean, default: true },
+    is_phone_verified: { type: Boolean, default: false },
+    google_linked: { type: Boolean, default: false },
+    google_email: { type: String, default: null },
+    google_id: { type: String, default: null },
     verification_status: { type: String, default: null }, // pending, verified, rejected
     is_suspended: { type: Boolean, default: false },
     avatar: { type: String, default: null },

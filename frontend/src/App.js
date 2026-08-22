@@ -21,9 +21,11 @@ import SellerProfile from "./pages/SellerProfile";
 import Messages from "./pages/Messages";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
+import Contact from "./pages/Contact";
 
 // Layout
 import Layout from "./components/Layout";
+import ScrollToTop from "./components/ScrollToTop";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
 
@@ -32,6 +34,7 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
+          <ScrollToTop />
           <Routes>
             <Route path="/" element={<Layout />}>
               <Route index element={<Home />} />
@@ -43,6 +46,8 @@ function App() {
               <Route path="search" element={<Search />} />
               <Route path="listing/:id" element={<ProductDetail />} />
               <Route path="seller/:id" element={<SellerProfile />} />
+              <Route path="contact" element={<Contact />} />
+              <Route path="page/contact" element={<Contact />} />
               <Route path="page/:slug" element={<StaticPage />} />
               <Route path="blog" element={<Blog />} />
               <Route path="blog/:slug" element={<BlogPost />} />
@@ -53,6 +58,11 @@ function App() {
                   <Dashboard />
                 </ProtectedRoute>
               } />
+              <Route path="post" element={
+                <ProtectedRoute>
+                  <PostListing />
+                </ProtectedRoute>
+              } />
               <Route path="sell" element={
                 <ProtectedRoute>
                   <PostListing />
@@ -61,6 +71,11 @@ function App() {
               <Route path="post-listing" element={
                 <ProtectedRoute>
                   <PostListing />
+                </ProtectedRoute>
+              } />
+              <Route path="edit/:id" element={
+                <ProtectedRoute>
+                  <EditListing />
                 </ProtectedRoute>
               } />
               <Route path="edit-listing/:id" element={

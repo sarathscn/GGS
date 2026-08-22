@@ -4,6 +4,11 @@ const Category = require('../models/Category');
 const User = require('../models/User');
 const Review = require('../models/Review');
 const generateSlug = require('../utils/generateSlug');
+const {
+  isDigitalCategory,
+  getItemTypeForCategory,
+  getMaxSpecificationsForCategory
+} = require('../utils/categoryUtils');
 
 const enrichListing = async (listing, categoryMap = null, userMap = null) => {
   const result = {
@@ -24,6 +29,8 @@ const enrichListing = async (listing, categoryMap = null, userMap = null) => {
     location_taluk: listing.location_taluk || null,
     location_area: listing.location_area || null,
     address_details: listing.address_details || null,
+    latitude: listing.latitude !== undefined && listing.latitude !== null ? Number(listing.latitude) : null,
+    longitude: listing.longitude !== undefined && listing.longitude !== null ? Number(listing.longitude) : null,
     contact_phone: listing.contact_phone,
     contact_method: listing.contact_method || 'both',
     hide_phone: Boolean(listing.hide_phone),
@@ -213,9 +220,29 @@ const getLatestListings = async (req, res) => {
 const getListing = async (req, res) => {
   try {
     const { listing_id } = req.params;
-    let listing = await Listing.findOne({ id: listing_id }).lean();
+    if (!listing_id) {
+      return res.status(400).json({ detail: 'Listing identifier required' });
+    }
+
+    const decoded = decodeURIComponent(listing_id).trim();
+    let listing = await Listing.findOne({ id: decoded }).lean();
+    
     if (!listing) {
-      listing = await Listing.findOne({ slug: listing_id }).lean();
+      listing = await Listing.findOne({ slug: decoded }).lean();
+    }
+    if (!listing) {
+      listing = await Listing.findOne({ slug: decoded.toLowerCase() }).lean();
+    }
+    if (!listing) {
+      const escaped = decoded.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      listing = await Listing.findOne({ slug: { $regex: new RegExp(`^${escaped}$`, 'i') } }).lean();
+    }
+    if (!listing) {
+      const baseSlug = decoded.replace(/-[a-f0-9]{8}$/i, '');
+      if (baseSlug && baseSlug !== decoded) {
+        const escapedBase = baseSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        listing = await Listing.findOne({ slug: { $regex: new RegExp(`^${escapedBase}`, 'i') } }).lean();
+      }
     }
     if (!listing) {
       return res.status(404).json({ detail: 'Listing not found' });
@@ -232,11 +259,162 @@ const getListing = async (req, res) => {
   }
 };
 
+const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
+
+const validateListingPayload = async (data, isUpdate = false) => {
+  // 1. Text Field Length Validation
+  if (data.title !== undefined || !isUpdate) {
+    const titleCheck = validateFieldLength(data.title, FIELD_LIMITS.TITLE, !isUpdate, 'Title');
+    if (!titleCheck.valid) return titleCheck;
+  }
+
+  if (data.description !== undefined || !isUpdate) {
+    const descCheck = validateFieldLength(data.description, FIELD_LIMITS.DESCRIPTION, !isUpdate, 'Description');
+    if (!descCheck.valid) return descCheck;
+  }
+
+  if (data.brand !== undefined && data.brand !== null && data.brand !== '') {
+    const brandCheck = validateFieldLength(data.brand, FIELD_LIMITS.BRAND, false, 'Brand');
+    if (!brandCheck.valid) return brandCheck;
+  }
+
+  if (data.model !== undefined && data.model !== null && data.model !== '') {
+    const modelCheck = validateFieldLength(data.model, FIELD_LIMITS.MODEL, false, 'Model');
+    if (!modelCheck.valid) return modelCheck;
+  }
+
+  if (data.location !== undefined && data.location !== null && data.location !== '') {
+    const locCheck = validateFieldLength(data.location, FIELD_LIMITS.LOCATION_ADDRESS, false, 'Location');
+    if (!locCheck.valid) return locCheck;
+  }
+
+  if (data.address_details !== undefined && data.address_details !== null && data.address_details !== '') {
+    const addrCheck = validateFieldLength(data.address_details, FIELD_LIMITS.LOCATION_ADDRESS, false, 'Address details');
+    if (!addrCheck.valid) return addrCheck;
+  }
+
+  if (data.location_district !== undefined && data.location_district !== null && data.location_district !== '') {
+    const distCheck = validateFieldLength(data.location_district, FIELD_LIMITS.LOCATION_NAME, false, 'District');
+    if (!distCheck.valid) return distCheck;
+  }
+
+  if (data.location_taluk !== undefined && data.location_taluk !== null && data.location_taluk !== '') {
+    const talukCheck = validateFieldLength(data.location_taluk, FIELD_LIMITS.LOCATION_NAME, false, 'Taluk');
+    if (!talukCheck.valid) return talukCheck;
+  }
+
+  if (data.location_area !== undefined && data.location_area !== null && data.location_area !== '') {
+    const areaCheck = validateFieldLength(data.location_area, FIELD_LIMITS.LOCATION_NAME, false, 'Area');
+    if (!areaCheck.valid) return areaCheck;
+  }
+
+  if (data.specifications && Array.isArray(data.specifications)) {
+    for (const spec of data.specifications) {
+      if (spec && spec.key) {
+        const keyCheck = validateFieldLength(spec.key, FIELD_LIMITS.SPEC_KEY, false, 'Specification key');
+        if (!keyCheck.valid) return keyCheck;
+      }
+      if (spec && spec.value) {
+        const valCheck = validateFieldLength(spec.value, FIELD_LIMITS.SPEC_VALUE, false, 'Specification value');
+        if (!valCheck.valid) return valCheck;
+      }
+    }
+  }
+
+  // 2. Price validation: must be >= 0 and <= 1,000,000 (10 Lakhs)
+  if (data.price !== undefined && data.price !== null && data.price !== '') {
+    const numPrice = Number(data.price);
+    if (isNaN(numPrice) || numPrice < 0) {
+      return { valid: false, error: 'Price must be a valid positive number' };
+    }
+    if (numPrice > 1000000) {
+      return { valid: false, error: 'Maximum price allowed is ₹10,00,000' };
+    }
+  } else if (!isUpdate && data.price_type !== 'free') {
+    return { valid: false, error: 'Price is required' };
+  }
+
+  // 2. Category & Item Type validation
+  if (data.category_id) {
+    const category = await Category.findOne({
+      $or: [{ id: data.category_id }, { slug: data.category_id }]
+    });
+    if (!category) {
+      return { valid: false, error: 'Invalid category selected' };
+    }
+
+    const expectedItemType = getItemTypeForCategory(category);
+    if (data.item_type && data.item_type !== expectedItemType) {
+      if (expectedItemType === 'digital') {
+        return { valid: false, error: `Category '${category.name}' requires item type to be 'digital'` };
+      } else {
+        return { valid: false, error: `Category '${category.name}' requires item type to be 'physical'` };
+      }
+    }
+
+    // 3. Subcategory validation (if provided)
+    if (data.subcategory_id) {
+      const subExists = category.subcategories?.some(
+        (sub) => sub.id === data.subcategory_id || sub.slug === data.subcategory_id
+      );
+      if (!subExists) {
+        return { valid: false, error: 'Invalid subcategory for the selected category' };
+      }
+    }
+
+    // 4. Specification count limit validation
+    if (data.specifications && Array.isArray(data.specifications)) {
+      const maxSpecs = getMaxSpecificationsForCategory(category);
+      const validSpecs = data.specifications.filter((s) => s && (s.key || s.value));
+      if (validSpecs.length > maxSpecs) {
+        return {
+          valid: false,
+          error: `Category '${category.name}' allows a maximum of ${maxSpecs} specifications`
+        };
+      }
+    }
+  } else if (!isUpdate) {
+    return { valid: false, error: 'Category is required' };
+  }
+
+  // 5. Coordinate validation (if provided)
+  if (data.latitude !== undefined && data.latitude !== null && data.latitude !== '') {
+    const lat = Number(data.latitude);
+    if (isNaN(lat) || lat < -90 || lat > 90) {
+      return { valid: false, error: 'Latitude must be a valid number between -90 and 90' };
+    }
+  }
+  if (data.longitude !== undefined && data.longitude !== null && data.longitude !== '') {
+    const lng = Number(data.longitude);
+    if (isNaN(lng) || lng < -180 || lng > 180) {
+      return { valid: false, error: 'Longitude must be a valid number between -180 and 180' };
+    }
+  }
+
+  return { valid: true };
+};
+
 // POST /api/listings
 const createListing = async (req, res) => {
   try {
     const user = req.user;
     const data = req.body;
+
+    const validation = await validateListingPayload(data, false);
+    if (!validation.valid) {
+      return res.status(400).json({ detail: validation.error });
+    }
+
+    // Resolve category for automatic item type
+    let itemType = 'physical';
+    if (data.category_id) {
+      const cat = await Category.findOne({
+        $or: [{ id: data.category_id }, { slug: data.category_id }]
+      });
+      if (cat) {
+        itemType = getItemTypeForCategory(cat);
+      }
+    }
 
     const newListing = new Listing({
       id: uuidv4(),
@@ -245,15 +423,17 @@ const createListing = async (req, res) => {
       description: data.description,
       category_id: data.category_id,
       subcategory_id: data.subcategory_id || null,
-      price: Number(data.price),
+      price: data.price_type === 'free' ? 0 : Number(data.price),
       price_type: data.price_type || 'fixed',
       condition: data.condition,
-      item_type: data.item_type || 'physical',
+      item_type: itemType,
       location: data.location,
       location_district: data.location_district || null,
       location_taluk: data.location_taluk || null,
       location_area: data.location_area || null,
       address_details: data.address_details || null,
+      latitude: data.latitude !== undefined && data.latitude !== null && data.latitude !== '' ? Number(data.latitude) : null,
+      longitude: data.longitude !== undefined && data.longitude !== null && data.longitude !== '' ? Number(data.longitude) : null,
       contact_phone: data.contact_phone,
       contact_method: data.contact_method || 'both',
       hide_phone: Boolean(data.hide_phone),
@@ -292,19 +472,57 @@ const updateListing = async (req, res) => {
       return res.status(403).json({ detail: 'Not authorized' });
     }
 
+    // Merge effective data for validation
+    const effectiveCategoryId = req.body.category_id || listing.category_id;
+    let expectedItemType = listing.item_type;
+    if (effectiveCategoryId) {
+      const cat = await Category.findOne({
+        $or: [{ id: effectiveCategoryId }, { slug: effectiveCategoryId }]
+      });
+      if (cat) {
+        expectedItemType = getItemTypeForCategory(cat);
+      }
+    }
+
+    const validationPayload = {
+      category_id: effectiveCategoryId,
+      item_type: req.body.item_type || expectedItemType,
+      subcategory_id: req.body.subcategory_id !== undefined ? req.body.subcategory_id : listing.subcategory_id,
+      specifications: req.body.specifications !== undefined ? req.body.specifications : listing.specifications,
+      price: req.body.price !== undefined ? req.body.price : listing.price,
+      price_type: req.body.price_type || listing.price_type,
+      latitude: req.body.latitude !== undefined ? req.body.latitude : listing.latitude,
+      longitude: req.body.longitude !== undefined ? req.body.longitude : listing.longitude
+    };
+
+    const validation = await validateListingPayload(validationPayload, true);
+    if (!validation.valid) {
+      return res.status(400).json({ detail: validation.error });
+    }
+
     const allowed = [
       'title', 'description', 'category_id', 'subcategory_id', 'price',
       'price_type', 'condition', 'item_type', 'location', 'location_district',
-      'location_taluk', 'location_area', 'address_details', 'contact_phone',
-      'contact_method', 'hide_phone', 'images', 'specifications', 'brand',
-      'model', 'status'
+      'location_taluk', 'location_area', 'address_details', 'latitude', 'longitude',
+      'contact_phone', 'contact_method', 'hide_phone', 'images', 'specifications',
+      'brand', 'model', 'status'
     ];
 
     const updateData = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined && req.body[key] !== null) {
-        updateData[key] = req.body[key];
+        if (key === 'price') {
+          updateData[key] = Number(req.body[key]);
+        } else if (key === 'latitude' || key === 'longitude') {
+          updateData[key] = req.body[key] === '' ? null : Number(req.body[key]);
+        } else {
+          updateData[key] = req.body[key];
+        }
       }
+    }
+
+    if (req.body.category_id && !req.body.item_type) {
+      updateData.item_type = expectedItemType;
     }
 
     if (Object.keys(updateData).length > 0) {

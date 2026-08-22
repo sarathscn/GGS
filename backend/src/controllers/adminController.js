@@ -1,3 +1,4 @@
+const { v4: uuidv4 } = require('uuid');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
 const Payment = require('../models/Payment');
@@ -490,12 +491,89 @@ const rejectKYC = async (req, res) => {
 
     await User.updateOne(
       { id: kyc.user_id },
-      { $set: { verification_status: 'rejected' } }
+      { 
+        $set: { 
+          is_seller_verified: false,
+          verification_status: 'rejected' 
+        } 
+      }
     );
 
     return res.status(200).json({ success: true, message: 'KYC rejected' });
   } catch (error) {
     console.error('Reject KYC error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// PUT /api/admin/kyc/:kyc_id/revoke
+const revokeKYC = async (req, res) => {
+  try {
+    const { kyc_id } = req.params;
+    const { reason = 'Seller verification revoked by administrator', notes } = req.body;
+    const admin = req.user;
+
+    const kyc = await KYCSubmission.findOne({ id: kyc_id });
+    if (!kyc) {
+      return res.status(404).json({ detail: 'KYC submission not found' });
+    }
+
+    kyc.status = 'revoked';
+    kyc.rejection_reason = reason;
+    kyc.reviewed_by = admin.id;
+    kyc.reviewed_at = new Date().toISOString();
+    await kyc.save();
+
+    await User.updateOne(
+      { id: kyc.user_id },
+      {
+        $set: {
+          is_seller_verified: false,
+          verification_status: 'revoked',
+          verification_revoked_at: new Date().toISOString(),
+          verification_revoked_by: admin.id
+        }
+      }
+    );
+
+    return res.status(200).json({ success: true, message: 'Seller verification revoked' });
+  } catch (error) {
+    console.error('Revoke KYC error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// PUT /api/admin/kyc/:kyc_id/reverify
+const reverifyKYC = async (req, res) => {
+  try {
+    const { kyc_id } = req.params;
+    const { reason = 'Please submit updated identification documents' } = req.body;
+    const admin = req.user;
+
+    const kyc = await KYCSubmission.findOne({ id: kyc_id });
+    if (!kyc) {
+      return res.status(404).json({ detail: 'KYC submission not found' });
+    }
+
+    kyc.status = 'reverification_requested';
+    kyc.rejection_reason = reason;
+    kyc.reviewed_by = admin.id;
+    kyc.reviewed_at = new Date().toISOString();
+    await kyc.save();
+
+    await User.updateOne(
+      { id: kyc.user_id },
+      {
+        $set: {
+          is_seller_verified: false,
+          verification_status: 'reverification_requested'
+        }
+      }
+    );
+
+    return res.status(200).json({ success: true, message: 'Re-verification requested from seller' });
+  } catch (error) {
+    console.error('Re-verify KYC error:', error);
     return res.status(500).json({ detail: error.message });
   }
 };
@@ -636,6 +714,106 @@ const getConversationMessages = async (req, res) => {
   }
 };
 
+// POST /api/admin/conversations/:conv_id/reply
+const replyToConversation = async (req, res) => {
+  try {
+    const { conv_id } = req.params;
+    const { text, attachment_url } = req.body;
+    const adminUser = req.user;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ detail: 'Message text is required' });
+    }
+
+    const conversation = await Conversation.findOne({ id: conv_id });
+    if (!conversation) {
+      return res.status(404).json({ detail: 'Conversation not found' });
+    }
+
+    const messageDoc = new Message({
+      id: uuidv4(),
+      conversation_id: conv_id,
+      sender_id: adminUser.id,
+      text: text.trim(),
+      attachment_url: attachment_url || null,
+      is_read: false,
+      is_flagged: false,
+      created_at: new Date().toISOString()
+    });
+
+    await messageDoc.save();
+
+    await Conversation.updateOne(
+      { id: conv_id },
+      {
+        $set: {
+          last_message: text.trim().substring(0, 100),
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      }
+    );
+
+    const enriched = messageDoc.toObject();
+    delete enriched._id;
+    delete enriched.__v;
+    enriched.sender_name = adminUser.name || 'Admin Moderator';
+    enriched.sender_avatar = adminUser.avatar || null;
+
+    return res.status(200).json(enriched);
+  } catch (error) {
+    console.error('Admin reply to conversation error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/reports/:report_id/remove-listing
+const removeReportedListing = async (req, res) => {
+  try {
+    const { report_id } = req.params;
+    const { reason = 'Listing removed due to user report violation' } = req.body;
+    const adminUser = req.user;
+
+    const report = await Report.findOne({ id: report_id });
+    if (!report) {
+      return res.status(404).json({ detail: 'Report not found' });
+    }
+
+    if (report.target_type === 'listing' && report.target_id) {
+      await Listing.updateOne(
+        { id: report.target_id },
+        { 
+          $set: { 
+            status: 'deleted',
+            moderation_note: reason,
+            updated_at: new Date().toISOString()
+          } 
+        }
+      );
+    }
+
+    await Report.updateOne(
+      { id: report_id },
+      {
+        $set: {
+          status: 'resolved',
+          action_taken: 'listing_removed',
+          reviewed_by: adminUser.id,
+          reviewed_at: new Date().toISOString()
+        }
+      }
+    );
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Listing successfully removed and report resolved' 
+    });
+  } catch (error) {
+    console.error('Remove reported listing error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
 // GET /api/admin/export/:export_type
 const exportData = async (req, res) => {
   try {
@@ -766,9 +944,13 @@ module.exports = {
   getKYCSubmissions,
   approveKYC,
   rejectKYC,
+  revokeKYC,
+  reverifyKYC,
   getFlaggedMessages,
   reviewFlaggedMessage,
   getAllConversations,
   getConversationMessages,
+  replyToConversation,
+  removeReportedListing,
   exportData
 };

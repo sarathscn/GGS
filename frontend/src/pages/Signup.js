@@ -1,13 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Logo from '../components/Logo';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Checkbox } from '../components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Gamepad2, Eye, EyeOff, Loader2, Mail, Phone, Chrome } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Phone, Chrome } from 'lucide-react';
+import { 
+  validateFullName, 
+  sanitizeFullNameInput, 
+  FULL_NAME_ERROR_MESSAGE,
+  validateUsername, 
+  sanitizeUsernameInput, 
+  USERNAME_ERROR_MESSAGE 
+} from '../lib/userValidation';
 
 export default function Signup() {
   const location = useLocation();
@@ -30,6 +39,23 @@ export default function Signup() {
 
   const handleEmailSignup = async (e) => {
     e.preventDefault();
+
+    const nameCheck = validateFullName(name);
+    if (!nameCheck.isValid) {
+      toast.error(nameCheck.error);
+      return;
+    }
+
+    if (!username.trim()) {
+      toast.error('Please enter a username');
+      return;
+    }
+
+    const usernameCheck = validateUsername(username);
+    if (!usernameCheck.isValid) {
+      toast.error(usernameCheck.error);
+      return;
+    }
     
     if (password !== confirmPassword) {
       toast.error('Passwords do not match');
@@ -51,8 +77,8 @@ export default function Signup() {
       await signup({
         email,
         password,
-        name,
-        username,
+        name: nameCheck.cleanName,
+        username: usernameCheck.cleanUsername,
         auth_type: 'email'
       });
       toast.success('Account created successfully!');
@@ -85,13 +111,20 @@ export default function Signup() {
   const handlePhoneSignup = async (e) => {
     e.preventDefault();
 
-    if (!name) {
-      toast.error('Please enter your name');
+    const nameCheck = validateFullName(name);
+    if (!nameCheck.isValid) {
+      toast.error(nameCheck.error);
       return;
     }
 
-    if (!username) {
+    if (!username || !username.trim()) {
       toast.error('Please enter a username');
+      return;
+    }
+
+    const usernameCheck = validateUsername(username);
+    if (!usernameCheck.isValid) {
+      toast.error(usernameCheck.error);
       return;
     }
 
@@ -109,16 +142,16 @@ export default function Signup() {
           // Create account
           await signup({
             phone: `+91${phone}`,
-            name,
-            username,
+            name: nameCheck.cleanName,
+            username: usernameCheck.cleanUsername,
             auth_type: 'phone'
           });
         }
       } else {
         await signup({
           phone: `+91${phone}`,
-          name,
-          username,
+          name: nameCheck.cleanName,
+          username: usernameCheck.cleanUsername,
           auth_type: 'phone'
         });
       }
@@ -142,7 +175,7 @@ export default function Signup() {
         token: 'mock-google-token',
         email: `user${Date.now()}@gmail.com`,
         name: 'Google User',
-        username: `user${Date.now()}`.substring(0, 15),
+        username: `u_${Date.now().toString().slice(-7)}`,
         avatar: null
       };
       await googleAuth(mockGoogleData);
@@ -156,51 +189,31 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
+    <div className="min-h-[80vh] flex items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600 to-cyan-500 flex items-center justify-center">
-              <Gamepad2 className="w-7 h-7 text-white" />
-            </div>
-            <span className="text-2xl font-black gradient-text">GGS</span>
-          </Link>
-          <h1 className="text-2xl font-black">Create Account</h1>
-          <p className="text-muted-foreground mt-1">Join the gaming community</p>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
-          {/* Google Signup */}
-          <Button
-            variant="outline"
-            className="w-full mb-4 h-12"
-            onClick={handleGoogleSignup}
-            disabled={loading || !agreeTerms}
-            data-testid="google-signup-btn"
-          >
-            <Chrome className="w-5 h-5 mr-2" />
-            Continue with Google
-          </Button>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+        {/* Header */}
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="inline-flex justify-center mb-3.5">
+            <div className="w-14 h-14 rounded-2xl bg-violet-600/10 border border-violet-500/25 flex items-center justify-center p-2 shadow-lg shadow-violet-500/5">
+              <img src="/ggs-logo.jpg" alt="GGS Game Gear Swap" className="w-full h-full object-contain rounded-xl" />
             </div>
           </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-foreground">Create your account</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm mt-1">
+            Join Kerala's premier gaming marketplace
+          </p>
+        </div>
 
-          {/* Auth Method Tabs */}
+        <div className="bg-card border border-border rounded-xl p-6 shadow-xl shadow-black/5">
           <Tabs value={authMethod} onValueChange={setAuthMethod}>
-            <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger value="email" className="gap-2">
                 <Mail className="w-4 h-4" />
                 Email
               </TabsTrigger>
               <TabsTrigger value="phone" className="gap-2">
                 <Phone className="w-4 h-4" />
-                Mobile
+                Phone
               </TabsTrigger>
             </TabsList>
 
@@ -208,26 +221,34 @@ export default function Signup() {
             <TabsContent value="email">
               <form onSubmit={handleEmailSignup} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="name">Full Name</Label>
+                    <span className="text-[11px] text-muted-foreground">Max 20 chars (letters & single spaces)</span>
+                  </div>
                   <Input
                     id="name"
                     type="text"
                     placeholder="John Doe"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    maxLength={20}
+                    onChange={(e) => setName(sanitizeFullNameInput(e.target.value))}
                     required
                     data-testid="signup-name"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="username">Username</Label>
+                    <span className="text-[11px] text-muted-foreground">1–9 chars (letters, numbers, _)</span>
+                  </div>
                   <Input
                     id="username"
                     type="text"
-                    placeholder="johndoe123"
+                    placeholder="johndoe"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    maxLength={9}
+                    onChange={(e) => setUsername(sanitizeUsernameInput(e.target.value))}
                     required
                     data-testid="signup-username"
                   />
@@ -290,14 +311,15 @@ export default function Signup() {
                     onCheckedChange={setAgreeTerms}
                     data-testid="signup-terms"
                   />
-                  <label
-                    htmlFor="terms"
-                    className="text-sm text-muted-foreground leading-tight cursor-pointer"
-                  >
-                    I agree to GGS's{' '}
-                    <Link to="/page/terms" className="text-violet-500 hover:underline">Terms and Conditions</Link>
-                    {' '}and{' '}
-                    <Link to="/page/privacy-policy" className="text-violet-500 hover:underline">Privacy Policy</Link>
+                  <label htmlFor="terms" className="text-xs text-muted-foreground leading-tight cursor-pointer">
+                    I agree to the{' '}
+                    <Link to="/page/terms" className="text-violet-500 hover:underline">
+                      Terms and Conditions
+                    </Link>{' '}
+                    and{' '}
+                    <Link to="/page/privacy" className="text-violet-500 hover:underline">
+                      Privacy Policy
+                    </Link>
                   </label>
                 </div>
 
@@ -323,26 +345,34 @@ export default function Signup() {
             <TabsContent value="phone">
               <form onSubmit={handlePhoneSignup} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="phone-name">Full Name</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="phone-name">Full Name</Label>
+                    <span className="text-[11px] text-muted-foreground">Max 20 chars (letters & single spaces)</span>
+                  </div>
                   <Input
                     id="phone-name"
                     type="text"
                     placeholder="John Doe"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    maxLength={20}
+                    onChange={(e) => setName(sanitizeFullNameInput(e.target.value))}
                     required
                     data-testid="signup-phone-name"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="phone-username">Username</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="phone-username">Username</Label>
+                    <span className="text-[11px] text-muted-foreground">1–9 chars (letters, numbers, _)</span>
+                  </div>
                   <Input
                     id="phone-username"
                     type="text"
-                    placeholder="johndoe123"
+                    placeholder="johndoe"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    maxLength={9}
+                    onChange={(e) => setUsername(sanitizeUsernameInput(e.target.value))}
                     required
                     data-testid="signup-phone-username"
                   />

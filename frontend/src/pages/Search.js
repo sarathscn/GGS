@@ -206,12 +206,12 @@ export default function Search() {
         </div>
 
         {/* Results Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
           <Badge variant="outline">
             {sortedListings.length} {sortedListings.length === 1 ? 'result' : 'results'}
           </Badge>
           <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-[160px]" data-testid="search-sort">
+            <SelectTrigger className="w-[140px] sm:w-[160px]" data-testid="search-sort">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
@@ -244,14 +244,16 @@ export default function Search() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-16">
-            <Gamepad2 className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <h3 className="font-bold text-lg mb-2">No results found</h3>
-            <p className="text-muted-foreground mb-4">
-              Try adjusting your search or filters
+          <div className="text-center py-16 bg-card border border-border rounded-2xl p-8">
+            <div className="w-16 h-16 rounded-2xl bg-white/95 dark:bg-zinc-900 border border-border flex items-center justify-center mx-auto mb-4 p-1 shadow-sm">
+              <img src="/ggs-logo.jpg" alt="" className="w-full h-full object-contain rounded-xl" />
+            </div>
+            <h3 className="font-bold text-lg mb-1 text-foreground">No matching listings found</h3>
+            <p className="text-muted-foreground text-sm mb-4">
+              Try adjusting your search keywords, district filters, or category selection
             </p>
             <Button variant="outline" onClick={clearFilters}>
-              Clear Filters
+              Clear All Filters
             </Button>
           </div>
         )}

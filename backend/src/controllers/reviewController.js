@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const Review = require('../models/Review');
 const Listing = require('../models/Listing');
 const User = require('../models/User');
+const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
 
 // POST /api/reviews
 const createReview = async (req, res) => {
@@ -12,6 +13,13 @@ const createReview = async (req, res) => {
     const numRating = Number(rating);
     if (!numRating || numRating < 1 || numRating > 5) {
       return res.status(400).json({ detail: 'Rating must be between 1 and 5' });
+    }
+
+    if (comment !== undefined && comment !== null && comment !== '') {
+      const commentCheck = validateFieldLength(comment, FIELD_LIMITS.REVIEW_COMMENT, false, 'Review comment');
+      if (!commentCheck.valid) {
+        return res.status(400).json({ detail: commentCheck.error });
+      }
     }
 
     const existing = await Review.findOne({

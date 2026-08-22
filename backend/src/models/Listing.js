@@ -17,15 +17,30 @@ const listingSchema = new mongoose.Schema(
     description: { type: String, required: true },
     category_id: { type: String, required: true, index: true },
     subcategory_id: { type: String, default: null, index: true },
-    price: { type: Number, required: true },
+    price: { 
+      type: Number, 
+      required: true, 
+      min: [0, 'Price cannot be negative'], 
+      max: [1000000, 'Maximum price allowed is ₹10,00,000'] 
+    },
     price_type: { type: String, default: 'fixed' }, // fixed, negotiable, exchange, free
     condition: { type: String, required: true },
-    item_type: { type: String, default: 'physical' }, // physical, digital
+    item_type: { 
+      type: String, 
+      enum: {
+        values: ['physical', 'digital'],
+        message: 'Item type must be either physical or digital'
+      }, 
+      required: true, 
+      default: 'physical' 
+    },
     location: { type: String, required: true },
     location_district: { type: String, default: null },
     location_taluk: { type: String, default: null },
     location_area: { type: String, default: null },
     address_details: { type: String, default: null },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
     contact_phone: { type: String, required: true },
     contact_method: { type: String, default: 'both' }, // phone, chat, both
     hide_phone: { type: Boolean, default: false },
@@ -38,6 +53,8 @@ const listingSchema = new mongoose.Schema(
     payment_status: { type: String, default: 'pending' }, // pending, completed
     featured: { type: Boolean, default: false },
     views_count: { type: Number, default: 0 },
+    moderation_note: { type: String, default: null },
+    updated_at: { type: String, default: null },
     created_at: { type: String, default: () => new Date().toISOString() }
   },
   {

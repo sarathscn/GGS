@@ -15,7 +15,8 @@ build/
 **/build/
 dist/
 **/dist/
-/coverage
+coverage/
+**/coverage/
 
 # Uploads & Media
 backend/uploads/*
@@ -30,11 +31,8 @@ yarn-error.log*
 
 # System & IDE files
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
-
-# Legacy Python (if any)
-__pycache__/
-*.pyc
-.venv/
-test_reports/
+*.swp
+*.swo

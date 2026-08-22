@@ -2,12 +2,27 @@ const { v4: uuidv4 } = require('uuid');
 const Report = require('../models/Report');
 const Listing = require('../models/Listing');
 const User = require('../models/User');
+const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
 
 // POST /api/reports
 const createReport = async (req, res) => {
   try {
     const user = req.user;
     const { target_type, target_id, reason, details } = req.body;
+
+    if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+      return res.status(400).json({ detail: 'Reason is required' });
+    }
+    if (reason.trim().length > 100) {
+      return res.status(400).json({ detail: 'Reason cannot exceed 100 characters' });
+    }
+
+    if (details !== undefined && details !== null && details !== '') {
+      const detailsCheck = validateFieldLength(details, FIELD_LIMITS.REPORT_DETAILS, false, 'Report details');
+      if (!detailsCheck.valid) {
+        return res.status(400).json({ detail: detailsCheck.error });
+      }
+    }
 
     const reportDoc = new Report({
       id: uuidv4(),

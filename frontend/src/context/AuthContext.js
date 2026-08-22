@@ -94,6 +94,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user,
+      setUser,
       token,
       loading,
       login,
@@ -104,6 +105,7 @@ export function AuthProvider({ children }) {
       verifyOTP,
       logout,
       updateProfile,
+      refreshUser: fetchUser,
       isAuthenticated: !!user,
       isAdmin: user?.role === 'admin',
       isVerifiedSeller: user?.is_seller_verified

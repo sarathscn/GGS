@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Logo from '../components/Logo';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Gamepad2, Eye, EyeOff, Loader2, Mail, Phone, Chrome } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Phone, Chrome, RotateCcw } from 'lucide-react';
 
 export default function Login() {
   const [authMethod, setAuthMethod] = useState('email');
@@ -18,107 +19,180 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [mockOtp, setMockOtp] = useState('');
-  
-  const { login, loginWithPhone, googleAuth, sendOTP, verifyOTP } = useAuth();
+  const [cooldown, setCooldown] = useState(0);
+
+  const timerRef = useRef(null);
+
+  const { login, loginWithPhone, sendOTP, verifyOTP, googleAuth } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = location.state?.from?.pathname || '/';
 
+  // Cleanup cooldown timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, []);
+
+  const startCooldownTimer = (seconds = 30) => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    setCooldown(seconds);
+    timerRef.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
   const handleEmailLogin = async (e) => {
     e.preventDefault();
+    if (loading) return;
+
+    if (!email || !email.trim()) {
+      toast.error('Please enter your email address');
+      return;
+    }
+    if (!password) {
+      toast.error('Please enter your password');
+      return;
+    }
+
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       toast.success('Welcome back!');
       navigate(from, { replace: true });
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed');
+      toast.error(error.response?.data?.detail || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
   };
 
   const handleSendOTP = async () => {
-    if (!phone || phone.length < 10) {
-      toast.error('Please enter a valid phone number');
+    if (loading || cooldown > 0) return;
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      toast.error('Please enter a valid 10-digit mobile number');
       return;
     }
+
     setLoading(true);
     try {
-      const result = await sendOTP(phone);
+      const formattedPhone = `+91${cleanPhone}`;
+      const res = await sendOTP(formattedPhone);
       setOtpSent(true);
-      setMockOtp(result.mock_otp); // For testing - remove in production
-      toast.success('OTP sent to your phone');
+      setMockOtp(res?.mock_otp || '');
+      toast.success('OTP sent to your mobile number');
+      startCooldownTimer(30);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to send OTP');
+      toast.error(error.response?.data?.detail || 'Failed to send OTP. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleResendOTP = async () => {
+    if (cooldown > 0 || loading) return;
+    await handleSendOTP();
+  };
+
   const handleVerifyOTP = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
+    if (loading) return;
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      toast.error('Invalid mobile number. Please check and try again.');
+      return;
+    }
+
+    const cleanOtp = otp.trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      toast.error('Please enter the complete 6-digit OTP');
+      return;
+    }
+
     setLoading(true);
     try {
-      const result = await verifyOTP(phone, otp);
-      if (result.is_new_user) {
-        navigate('/signup', { state: { phone } });
-      } else {
-        toast.success('Welcome back!');
-        navigate(from, { replace: true });
+      const formattedPhone = `+91${cleanPhone}`;
+      const res = await verifyOTP(formattedPhone, cleanOtp);
+
+      if (res && res.is_new_user) {
+        toast.error('No account found with this mobile number. Please create an account.');
+        navigate('/signup', { state: { phone: cleanPhone } });
+        return;
       }
+
+      toast.success('Welcome back!');
+      navigate(from, { replace: true });
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Invalid OTP');
+      toast.error(error.response?.data?.detail || 'Invalid or expired OTP. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    // Mock Google OAuth
+    if (loading) return;
     setLoading(true);
     try {
       const mockGoogleData = {
-        token: 'mock-google-token',
-        email: 'googleuser@gmail.com',
+        email: `google_user_${Date.now()}@gmail.com`,
         name: 'Google User',
-        avatar: null
+        google_id: `google_${Date.now()}`
       };
       await googleAuth(mockGoogleData);
-      toast.success('Welcome!');
+      toast.success('Logged in with Google!');
       navigate(from, { replace: true });
     } catch (error) {
-      toast.error('Google login failed');
+      toast.error(error.response?.data?.detail || 'Google login failed');
     } finally {
       setLoading(false);
     }
   };
 
+  // Aliases for compatibility
+  const handleSendOtp = handleSendOTP;
+  const handleVerifyOtp = handleVerifyOTP;
+
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
+    <div className="min-h-[80vh] flex items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600 to-cyan-500 flex items-center justify-center">
-              <Gamepad2 className="w-7 h-7 text-white" />
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="inline-flex justify-center mb-3.5">
+            <div className="w-14 h-14 rounded-2xl bg-violet-600/10 border border-violet-500/25 flex items-center justify-center p-2 shadow-lg shadow-violet-500/5">
+              <img src="/ggs-logo.jpg" alt="GGS Game Gear Swap" className="w-full h-full object-contain rounded-xl" />
             </div>
-            <span className="text-2xl font-black gradient-text">GGS</span>
-          </Link>
-          <h1 className="text-2xl font-black">Welcome Back</h1>
-          <p className="text-muted-foreground mt-1">Sign in to your account</p>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-foreground">Welcome Back</h1>
+          <p className="text-muted-foreground mt-1 text-xs sm:text-sm">Sign in to your account</p>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
+        <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-xl">
           {/* Google Login */}
           <Button
             variant="outline"
-            className="w-full mb-4 h-12"
+            className="w-full mb-4 h-12 rounded-xl font-semibold border-border hover:bg-muted/80"
             onClick={handleGoogleLogin}
             disabled={loading}
             data-testid="google-login-btn"
           >
-            <Chrome className="w-5 h-5 mr-2" />
+            <Chrome className="w-5 h-5 mr-2 text-violet-500" />
             Continue with Google
           </Button>
 
@@ -127,20 +201,20 @@ export default function Login() {
               <div className="w-full border-t border-border"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+              <span className="bg-card px-3 text-muted-foreground font-semibold">Or continue with</span>
             </div>
           </div>
 
           {/* Auth Method Tabs */}
-          <Tabs value={authMethod} onValueChange={setAuthMethod}>
-            <TabsList className="grid w-full grid-cols-2 mb-4">
-              <TabsTrigger value="email" className="gap-2">
+          <Tabs value={authMethod} onValueChange={(val) => { setAuthMethod(val); setOtpSent(false); setOtp(''); }}>
+            <TabsList className="grid w-full grid-cols-2 mb-6 h-11 p-1 bg-muted/60 rounded-xl">
+              <TabsTrigger value="email" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm">
                 <Mail className="w-4 h-4" />
-                Email
+                Email & Password
               </TabsTrigger>
-              <TabsTrigger value="phone" className="gap-2">
+              <TabsTrigger value="phone" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm">
                 <Phone className="w-4 h-4" />
-                Mobile
+                Mobile OTP
               </TabsTrigger>
             </TabsList>
 
@@ -148,7 +222,7 @@ export default function Login() {
             <TabsContent value="email">
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Email Address</Label>
                   <Input
                     id="email"
                     type="email"
@@ -156,12 +230,15 @@ export default function Login() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    className="h-11 rounded-xl"
                     data-testid="login-email"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</Label>
+                  </div>
                   <div className="relative">
                     <Input
                       id="password"
@@ -170,13 +247,14 @@ export default function Login() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
+                      className="h-11 rounded-xl pr-10"
                       data-testid="login-password"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="absolute right-0 top-0 h-full px-3"
+                      className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -186,7 +264,7 @@ export default function Login() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-violet-600 hover:bg-violet-700"
+                  className="w-full h-11 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-md shadow-violet-600/20"
                   disabled={loading}
                   data-testid="login-submit"
                 >
@@ -207,12 +285,12 @@ export default function Login() {
               {!otpSent ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="phone">Mobile Number</Label>
+                    <Label htmlFor="phone" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Mobile Number</Label>
                     <div className="flex gap-2">
                       <Input
                         value="+91"
                         disabled
-                        className="w-16"
+                        className="w-16 h-11 rounded-xl text-center font-mono font-bold bg-muted"
                       />
                       <Input
                         id="phone"
@@ -221,15 +299,18 @@ export default function Login() {
                         value={phone}
                         onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                         required
+                        className="h-11 rounded-xl font-mono text-base tracking-wider"
                         data-testid="login-phone"
                       />
                     </div>
+                    <p className="text-[11px] text-muted-foreground">We will send a 6-digit one-time password to this number.</p>
                   </div>
+
                   <Button
                     type="button"
-                    className="w-full bg-violet-600 hover:bg-violet-700"
+                    className="w-full h-11 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-md shadow-violet-600/20"
                     onClick={handleSendOTP}
-                    disabled={loading || phone.length < 10}
+                    disabled={loading || phone.replace(/\D/g, '').length < 10}
                     data-testid="send-otp-btn"
                   >
                     {loading ? (
@@ -245,44 +326,71 @@ export default function Login() {
               ) : (
                 <form onSubmit={handleVerifyOTP} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="otp">Enter OTP</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="otp" className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Enter 6-Digit OTP</Label>
+                      <span className="text-xs font-mono text-violet-500 font-semibold">+91 {phone}</span>
+                    </div>
+
                     <Input
                       id="otp"
                       type="text"
-                      placeholder="Enter 6-digit OTP"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="• • • • • •"
                       value={otp}
                       onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       required
                       maxLength={6}
+                      className="h-12 rounded-xl text-center font-mono text-xl tracking-[0.3em] font-bold"
                       data-testid="login-otp"
                     />
+
                     {mockOtp && (
-                      <p className="text-xs text-amber-500">Mock OTP for testing: {mockOtp}</p>
+                      <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-600 dark:text-amber-400 text-center font-medium">
+                        Mock OTP for testing: <strong className="font-mono">{mockOtp}</strong>
+                      </div>
                     )}
                   </div>
+
                   <Button
                     type="submit"
-                    className="w-full bg-violet-600 hover:bg-violet-700"
-                    disabled={loading || otp.length < 6}
+                    className="w-full h-11 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-md shadow-violet-600/20"
+                    disabled={loading || otp.trim().length < 6}
                     data-testid="verify-otp-btn"
                   >
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Verifying...
+                        Verifying OTP...
                       </>
                     ) : (
-                      'Verify & Login'
+                      'Verify & Sign In'
                     )}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full"
-                    onClick={() => { setOtpSent(false); setOtp(''); }}
-                  >
-                    Change Number
-                  </Button>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground underline transition-colors"
+                      onClick={() => { setOtpSent(false); setOtp(''); setMockOtp(''); }}
+                    >
+                      Change Number
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={cooldown > 0 || loading}
+                      onClick={handleResendOTP}
+                      className={`text-xs font-semibold flex items-center gap-1 ${
+                        cooldown > 0 
+                          ? 'text-muted-foreground cursor-not-allowed' 
+                          : 'text-violet-500 hover:text-violet-600 hover:underline'
+                      }`}
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend OTP'}
+                    </button>
+                  </div>
                 </form>
               )}
             </TabsContent>
@@ -290,18 +398,9 @@ export default function Login() {
 
           <div className="mt-6 text-center text-sm">
             <span className="text-muted-foreground">New to Game Gear Swap? </span>
-            <Link to="/signup" className="text-violet-500 hover:underline font-medium">
+            <Link to="/signup" className="text-violet-500 hover:underline font-bold">
               Create an account
             </Link>
-          </div>
-
-          {/* Demo credentials */}
-          <div className="mt-6 p-4 rounded-lg bg-muted/50 border border-border">
-            <p className="text-xs text-muted-foreground mb-2 font-medium">Demo Credentials:</p>
-            <div className="space-y-1 text-xs">
-              <p><span className="text-muted-foreground">Admin:</span> admin@ggs.com / admin123</p>
-              <p><span className="text-muted-foreground">User:</span> user@ggs.com / user123</p>
-            </div>
           </div>
         </div>
       </div>

@@ -64,16 +64,36 @@
 @layer base {
     * {
         @apply border-border;
+        box-sizing: border-box;
+    }
+    html {
+        max-width: 100%;
+        overflow-x: clip;
     }
     body {
-        @apply bg-background text-foreground antialiased;
+        @apply bg-background text-foreground antialiased min-h-screen flex flex-col;
         font-family: 'Manrope', sans-serif;
+        max-width: 100%;
+        overflow-x: clip;
     }
     h1, h2, h3, h4, h5, h6 {
         font-family: 'Chivo', sans-serif;
+        overflow-wrap: break-word;
     }
     .font-mono {
         font-family: 'JetBrains Mono', monospace;
+    }
+}
+
+@keyframes rgbGradient {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
     }
 }
 
@@ -81,11 +101,40 @@
     .gradient-text {
         @apply bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent;
     }
+    .rgb-gradient-text {
+        background: linear-gradient(
+            90deg,
+            #8b5cf6,
+            #3b82f6,
+            #06b6d4,
+            #ec4899,
+            #8b5cf6
+        );
+        background-size: 300% 300%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: rgbGradient 6s ease infinite;
+    }
     .card-glow {
         @apply hover:shadow-[0_0_30px_-5px_rgba(124,58,237,0.3)] transition-shadow duration-300;
     }
     .glass {
         @apply bg-white/5 backdrop-blur-xl border border-white/10;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rgb-gradient-text {
+        animation: none !important;
+        background-position: 0% 50% !important;
     }
 }
 

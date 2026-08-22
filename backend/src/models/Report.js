@@ -10,6 +10,7 @@ const reportSchema = new mongoose.Schema(
     reason: { type: String, required: true },
     details: { type: String, default: null },
     status: { type: String, default: 'pending' }, // pending, resolved, dismissed
+    action_taken: { type: String, default: null }, // listing_removed, dismissed, etc.
     reviewed_by: { type: String, default: null },
     reviewed_at: { type: String, default: null },
     created_at: { type: String, default: () => new Date().toISOString() }

@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { toast } from 'sonner';
+import { FIELD_LIMITS } from '../lib/fieldLimits';
 import { 
   Send, 
   ArrowLeft, 
@@ -31,10 +32,10 @@ import {
   Check,
   CheckCheck,
   AlertTriangle,
-  X,
   Shield,
   Flag,
-  MoreVertical
+  Store,
+  Clock
 } from 'lucide-react';
 
 export default function Messages() {
@@ -42,6 +43,7 @@ export default function Messages() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, token } = useAuth();
+  
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -51,7 +53,9 @@ export default function Messages() {
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [typingTimeout, setTypingTimeout] = useState(null);
   const [imageUploading, setImageUploading] = useState(false);
+  
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const wsRef = useRef(null);
   
@@ -62,17 +66,22 @@ export default function Messages() {
   const [reportDetails, setReportDetails] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
 
-  // Create conversation from query params (from product detail page)
+  // 1. Handle creating conversation from query params (?listing=X&seller=Y)
   useEffect(() => {
     const listingId = searchParams.get('listing');
     const sellerId = searchParams.get('seller');
     
     if (listingId && sellerId && user) {
-      createConversation(listingId, sellerId);
+      if (user.id === sellerId) {
+        toast.info('This is your own listing.');
+        navigate(`/listing/${listingId}`, { replace: true });
+        return;
+      }
+      createOrOpenConversation(listingId, sellerId);
     }
   }, [searchParams, user]);
 
-  const createConversation = async (listingId, sellerId) => {
+  const createOrOpenConversation = async (listingId, sellerId) => {
     try {
       const response = await api.post('/conversations', {
         listing_id: listingId,
@@ -80,83 +89,14 @@ export default function Messages() {
       });
       navigate(`/messages/${response.data.id}`, { replace: true });
     } catch (error) {
-      console.error('Failed to create conversation:', error);
+      toast.error(error.response?.data?.detail || 'Failed to open conversation');
     }
   };
 
+  // 2. Fetch all user conversations on mount
   useEffect(() => {
     fetchConversations();
   }, []);
-
-  useEffect(() => {
-    if (conversationId) {
-      const conv = conversations.find(c => c.id === conversationId);
-      setSelectedConversation(conv);
-      fetchMessages(conversationId);
-      connectWebSocket(conversationId);
-    }
-    
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [conversationId, conversations, token]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const connectWebSocket = useCallback((convId) => {
-    if (!token || !convId) return;
-    
-    // Close existing connection
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-    
-    const wsUrl = `${process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://')}/ws/chat/${convId}?token=${token}`;
-    
-    try {
-      const ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-      };
-      
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'new_message') {
-          setMessages(prev => [...prev, data.message]);
-          // Update conversation list
-          setConversations(prev => prev.map(c => 
-            c.id === convId 
-              ? { ...c, last_message: data.message.text.slice(0, 50), last_message_at: data.message.created_at }
-              : c
-          ));
-        } else if (data.type === 'typing') {
-          setOtherUserTyping(data.is_typing);
-        } else if (data.type === 'message_read') {
-          setMessages(prev => prev.map(msg => 
-            msg.id === data.message_id ? { ...msg, is_read: true } : msg
-          ));
-        }
-      };
-      
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-      };
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-      
-      wsRef.current = ws;
-    } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
-    }
-  }, [token]);
 
   const fetchConversations = async () => {
     try {
@@ -169,6 +109,45 @@ export default function Messages() {
     }
   };
 
+  // 3. Handle Active Conversation selection & messages
+  useEffect(() => {
+    if (!conversationId) {
+      setSelectedConversation(null);
+      setMessages([]);
+      return;
+    }
+
+    const loadActiveChat = async () => {
+      // Find in existing list or fetch directly
+      const cached = conversations.find(c => c.id === conversationId);
+      if (cached) {
+        setSelectedConversation(cached);
+      } else {
+        try {
+          const res = await api.get(`/conversations/${conversationId}`);
+          setSelectedConversation(res.data);
+        } catch (err) {
+          toast.error('Conversation not found or unauthorized');
+          navigate('/messages', { replace: true });
+          return;
+        }
+      }
+
+      // Fetch messages
+      fetchMessages(conversationId);
+      // Connect WebSocket
+      connectWebSocket(conversationId);
+    };
+
+    loadActiveChat();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [conversationId, token]);
+
   const fetchMessages = async (convId) => {
     try {
       const response = await api.get(`/conversations/${convId}/messages`);
@@ -178,17 +157,65 @@ export default function Messages() {
     }
   };
 
+  const connectWebSocket = useCallback((convId) => {
+    if (!token || !convId) return;
+    
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    
+    const wsUrl = `${process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://')}/ws/chat/${convId}?token=${token}`;
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'new_message') {
+            setMessages(prev => [...prev, data.message]);
+            setConversations(prev => prev.map(c => 
+              c.id === convId 
+                ? { ...c, last_message: (data.message.text || 'Attachment').slice(0, 50), last_message_at: data.message.created_at }
+                : c
+            ));
+          } else if (data.type === 'typing') {
+            setOtherUserTyping(data.is_typing);
+          } else if (data.type === 'message_read') {
+            setMessages(prev => prev.map(msg => 
+              msg.id === data.message_id ? { ...msg, is_read: true } : msg
+            ));
+          }
+        } catch (err) {
+          // ignore parsing error
+        }
+      };
+      
+      wsRef.current = ws;
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  };
+
   const handleTyping = () => {
-    // Send typing status via REST (WebSocket will broadcast)
     if (selectedConversation) {
       api.post(`/conversations/${selectedConversation.id}/typing?is_typing=true`).catch(() => {});
       
-      // Clear existing timeout
       if (typingTimeout) {
         clearTimeout(typingTimeout);
       }
       
-      // Set new timeout to clear typing status
       const timeout = setTimeout(() => {
         api.post(`/conversations/${selectedConversation.id}/typing?is_typing=false`).catch(() => {});
       }, 2000);
@@ -216,10 +243,9 @@ export default function Messages() {
       
       const imageUrl = `${process.env.REACT_APP_BACKEND_URL}${uploadRes.data.url}`;
       
-      // Send message with image
       const response = await api.post('/messages', {
         conversation_id: selectedConversation.id,
-        text: '📷 Image',
+        text: '📷 Image Attachment',
         attachment_url: imageUrl,
         attachment_type: 'image'
       });
@@ -227,7 +253,7 @@ export default function Messages() {
       setMessages(prev => [...prev, response.data]);
       setConversations(prev => prev.map(c => 
         c.id === selectedConversation.id 
-          ? { ...c, last_message: '📷 Image', last_message_at: new Date().toISOString() }
+          ? { ...c, last_message: '📷 Image Attachment', last_message_at: new Date().toISOString() }
           : c
       ));
     } catch (error) {
@@ -244,34 +270,34 @@ export default function Messages() {
     e.preventDefault();
     if (!newMessage.trim() || !selectedConversation) return;
 
-    // Stop typing indicator
     if (typingTimeout) {
       clearTimeout(typingTimeout);
       api.post(`/conversations/${selectedConversation.id}/typing?is_typing=false`).catch(() => {});
     }
 
+    const messageText = newMessage.trim();
+    setNewMessage('');
     setSending(true);
+
     try {
       const response = await api.post('/messages', {
         conversation_id: selectedConversation.id,
-        text: newMessage
+        text: messageText
       });
       setMessages(prev => [...prev, response.data]);
-      setNewMessage('');
       
-      // Update conversation in list
       setConversations(prev => prev.map(c => 
         c.id === selectedConversation.id 
-          ? { ...c, last_message: newMessage.slice(0, 50), last_message_at: new Date().toISOString() }
+          ? { ...c, last_message: messageText.slice(0, 50), last_message_at: new Date().toISOString() }
           : c
       ));
       
-      // Show warning if message was flagged
       if (response.data.is_flagged) {
-        toast.warning('Your message contained words that were filtered for safety');
+        toast.warning('Your message contained filtered keywords for user safety.');
       }
     } catch (error) {
-      toast.error('Failed to send message');
+      toast.error('Failed to send message. Please try again.');
+      setNewMessage(messageText);
     } finally {
       setSending(false);
     }
@@ -291,7 +317,7 @@ export default function Messages() {
         reason: reportReason,
         details: reportDetails
       });
-      toast.success('Report submitted. We will review it shortly.');
+      toast.success('Report submitted. Our moderation team will review this conversation.');
       setShowReportModal(false);
       setReportReason('');
       setReportDetails('');
@@ -306,10 +332,6 @@ export default function Messages() {
   const openReportModal = (messageId = null) => {
     setReportMessageId(messageId);
     setShowReportModal(true);
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const formatTime = (dateString) => {
@@ -336,52 +358,57 @@ export default function Messages() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[60vh] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] py-4">
-      <div className="max-w-6xl mx-auto px-4 h-[calc(100vh-8rem)]">
-        <div className="bg-card border border-border rounded-xl overflow-hidden h-full flex">
-          {/* Conversations List */}
-          <div className={`w-full md:w-80 border-r border-border flex flex-col ${selectedConversation ? 'hidden md:flex' : 'flex'}`}>
-            <div className="p-4 border-b border-border">
-              <h1 className="font-bold text-lg">Messages</h1>
+    <div className="min-h-[calc(100vh-4.5rem)] py-3 sm:py-6 bg-background">
+      <div className="max-w-6xl mx-auto px-2 sm:px-4 lg:px-6 h-[calc(100vh-6rem)] sm:h-[calc(100vh-7.5rem)]">
+        <div className="bg-card border border-border rounded-2xl overflow-hidden h-full flex shadow-xl shadow-black/5">
+          
+          {/* Left Sidebar: Conversations List */}
+          <div className={`w-full md:w-80 lg:w-96 border-r border-border flex flex-col ${selectedConversation ? 'hidden md:flex' : 'flex'}`}>
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h1 className="font-black text-lg text-foreground tracking-tight">Messages</h1>
+              <span className="text-xs text-muted-foreground font-mono">
+                {conversations.length} {conversations.length === 1 ? 'chat' : 'chats'}
+              </span>
             </div>
             
             {conversations.length > 0 ? (
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto divide-y divide-border/60">
                 {conversations.map((conv) => (
                   <Link
                     key={conv.id}
                     to={`/messages/${conv.id}`}
-                    className={`block p-4 border-b border-border hover:bg-muted/50 transition-colors ${
-                      selectedConversation?.id === conv.id ? 'bg-muted' : ''
+                    className={`block p-3.5 hover:bg-muted/50 transition-colors ${
+                      selectedConversation?.id === conv.id ? 'bg-violet-500/10 dark:bg-violet-500/15' : ''
                     }`}
                   >
-                    <div className="flex gap-3">
-                      <div className="w-12 h-12 rounded-full bg-violet-600/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    <div className="flex gap-3 items-center">
+                      <div className="w-11 h-11 rounded-full bg-violet-600/10 flex items-center justify-center flex-shrink-0 overflow-hidden border border-violet-500/20">
                         {conv.other_user_avatar ? (
                           <img src={conv.other_user_avatar} alt="" className="w-full h-full rounded-full object-cover" />
                         ) : (
-                          <span className="font-bold text-violet-500">{conv.other_user_name?.[0] || 'U'}</span>
+                          <span className="font-bold text-violet-500 text-sm">{conv.other_user_name?.[0] || 'U'}</span>
                         )}
                       </div>
+
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="font-medium truncate">{conv.other_user_name}</p>
+                        <div className="flex items-center justify-between mb-0.5">
+                          <p className="font-bold text-sm truncate text-foreground">{conv.other_user_name}</p>
                           {conv.unread_count > 0 && (
-                            <span className="w-5 h-5 bg-violet-600 text-white text-xs rounded-full flex items-center justify-center">
+                            <span className="h-4 min-w-[16px] px-1 bg-violet-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                               {conv.unread_count}
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-muted-foreground truncate">{conv.listing_title}</p>
+                        <p className="text-xs text-muted-foreground truncate font-medium">{conv.listing_title}</p>
                         {conv.last_message && (
-                          <p className="text-xs text-muted-foreground truncate mt-1">{conv.last_message}</p>
+                          <p className="text-[11px] text-muted-foreground/80 truncate mt-0.5">{conv.last_message}</p>
                         )}
                       </div>
                     </div>
@@ -389,28 +416,31 @@ export default function Messages() {
                 ))}
               </div>
             ) : (
-              <div className="flex-1 flex items-center justify-center p-8">
-                <div className="text-center">
-                  <MessageCircle className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No conversations yet</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Start chatting with sellers on listings
+              <div className="flex-1 flex items-center justify-center p-6 text-center">
+                <div>
+                  <MessageCircle className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />
+                  <p className="font-bold text-foreground text-sm">No conversations yet</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-[200px] mx-auto">
+                    Click 'Chat with Seller' on any product page to start a deal.
                   </p>
+                  <Link to="/marketplace" className="inline-block mt-4">
+                    <Button size="sm" variant="outline" className="text-xs">Browse Marketplace</Button>
+                  </Link>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Chat Area */}
-          <div className={`flex-1 flex flex-col ${selectedConversation ? 'flex' : 'hidden md:flex'}`}>
+          {/* Right Chat Area */}
+          <div className={`flex-1 flex flex-col bg-card/60 ${selectedConversation ? 'flex' : 'hidden md:flex'}`}>
             {selectedConversation ? (
               <>
                 {/* Chat Header */}
-                <div className="p-4 border-b border-border flex items-center gap-3">
+                <div className="p-3.5 sm:p-4 border-b border-border flex items-center gap-3 bg-card">
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="md:hidden"
+                    className="md:hidden h-8 w-8"
                     onClick={() => {
                       setSelectedConversation(null);
                       navigate('/messages');
@@ -418,92 +448,91 @@ export default function Messages() {
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </Button>
-                  <Link to={`/listing/${selectedConversation.listing_id}`} className="flex items-center gap-3 flex-1">
+
+                  <Link to={`/listing/${selectedConversation.listing_id}`} className="flex items-center gap-3 flex-1 min-w-0 group">
                     {selectedConversation.listing_image && (
                       <img 
                         src={selectedConversation.listing_image} 
                         alt="" 
-                        className="w-10 h-10 rounded-lg object-cover"
+                        className="w-10 h-10 rounded-xl object-cover border border-border shrink-0 group-hover:scale-105 transition-transform"
                       />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{selectedConversation.other_user_name}</p>
+                      <p className="font-bold text-sm truncate text-foreground group-hover:text-violet-500 transition-colors">
+                        {selectedConversation.other_user_name}
+                      </p>
                       <p className="text-xs text-muted-foreground truncate">{selectedConversation.listing_title}</p>
                     </div>
                   </Link>
-                  <p className="font-mono font-bold text-violet-500 mr-2">
-                    ₹{selectedConversation.listing_price?.toLocaleString('en-IN')}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                    onClick={() => openReportModal()}
-                    title="Report this chat"
-                  >
-                    <Flag className="w-5 h-5" />
-                  </Button>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <p className="font-mono font-bold text-sm sm:text-base text-violet-500">
+                      ₹{selectedConversation.listing_price?.toLocaleString('en-IN')}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                      onClick={() => openReportModal()}
+                      title="Report this conversation"
+                    >
+                      <Flag className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
 
-                {/* Safety Notice */}
-                <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
-                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2">
-                    <Shield className="w-3 h-3" />
-                    Be polite & respectful. Chats are monitored for safety. Never share personal info like passwords or bank details.
-                  </p>
+                {/* Safety Notice Banner */}
+                <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                  <Shield className="w-3.5 h-3.5 shrink-0" />
+                  <span>Meet in safe public spots in Kerala. Inspect hardware before payment. Never share OTPs.</span>
                 </div>
 
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Messages Container */}
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5">
                   {messages.map((msg, index) => {
                     const isOwn = msg.sender_id === user?.id;
                     const showDate = index === 0 || 
                       formatDate(messages[index - 1].created_at) !== formatDate(msg.created_at);
                     
                     return (
-                      <div key={msg.id}>
+                      <div key={msg.id || index}>
                         {showDate && (
-                          <div className="text-center text-xs text-muted-foreground my-4">
+                          <div className="text-center text-[11px] font-semibold text-muted-foreground my-3 uppercase tracking-wider">
                             {formatDate(msg.created_at)}
                           </div>
                         )}
                         <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                           {!isOwn && (
-                            <div className="w-8 h-8 rounded-full bg-violet-600/10 flex items-center justify-center mr-2 flex-shrink-0 overflow-hidden">
+                            <div className="w-7 h-7 rounded-full bg-violet-600/10 flex items-center justify-center mr-2 flex-shrink-0 overflow-hidden text-xs font-bold text-violet-500">
                               {msg.sender_avatar ? (
                                 <img src={msg.sender_avatar} alt="" className="w-full h-full object-cover" />
                               ) : (
-                                <span className="text-xs font-bold text-violet-500">{msg.sender_name?.[0]}</span>
+                                msg.sender_name?.[0] || 'U'
                               )}
                             </div>
                           )}
-                          <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                          <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
                             isOwn 
-                              ? 'bg-violet-600 text-white rounded-br-md' 
-                              : 'bg-muted rounded-bl-md'
+                              ? 'bg-violet-600 text-white rounded-br-sm' 
+                              : 'bg-muted rounded-bl-sm text-foreground'
                           } ${msg.is_flagged ? 'border border-amber-500/50' : ''}`}>
-                            {msg.attachment_url && msg.attachment_type === 'image' && (
+                            {msg.attachment_url && (
                               <img 
                                 src={msg.attachment_url} 
                                 alt="" 
-                                className="rounded-lg mb-2 max-w-full cursor-pointer"
+                                className="rounded-xl mb-2 max-w-full max-h-60 object-cover cursor-pointer hover:opacity-95"
                                 onClick={() => window.open(msg.attachment_url, '_blank')}
                               />
                             )}
-                            <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
-                            <div className={`flex items-center gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
-                              <span className={`text-xs ${isOwn ? 'text-white/70' : 'text-muted-foreground'}`}>
-                                {formatTime(msg.created_at)}
-                              </span>
+                            <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                            <div className={`flex items-center gap-1 mt-1 text-[10px] ${isOwn ? 'justify-end text-white/75' : 'text-muted-foreground'}`}>
+                              <span>{formatTime(msg.created_at)}</span>
                               {isOwn && (
                                 msg.is_read ? (
                                   <CheckCheck className="w-3 h-3 text-cyan-300" />
                                 ) : (
                                   <Check className="w-3 h-3 text-white/70" />
                                 )
-                              )}
-                              {msg.is_flagged && (
-                                <AlertTriangle className="w-3 h-3 text-amber-500" title="Message was filtered" />
                               )}
                             </div>
                           </div>
@@ -512,20 +541,12 @@ export default function Messages() {
                     );
                   })}
                   
-                  {/* Typing indicator */}
                   {otherUserTyping && (
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-violet-600/10 flex items-center justify-center">
-                        <span className="text-xs font-bold text-violet-500">
-                          {selectedConversation.other_user_name?.[0]}
-                        </span>
-                      </div>
-                      <div className="bg-muted rounded-2xl px-4 py-2">
-                        <div className="flex gap-1">
-                          <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                          <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                          <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                        </div>
+                      <div className="bg-muted rounded-xl px-3 py-1.5 flex gap-1">
+                        <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                        <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                        <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                       </div>
                     </div>
                   )}
@@ -533,9 +554,9 @@ export default function Messages() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input */}
-                <form onSubmit={sendMessage} className="p-4 border-t border-border">
-                  <div className="flex gap-2">
+                {/* Message Input Footer */}
+                <form onSubmit={sendMessage} className="p-3 sm:p-4 border-t border-border bg-card">
+                  <div className="flex gap-2 items-center">
                     <input
                       type="file"
                       accept="image/*"
@@ -547,30 +568,35 @@ export default function Messages() {
                       type="button"
                       variant="outline"
                       size="icon"
+                      className="h-10 w-10 rounded-xl shrink-0"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={imageUploading}
+                      title="Attach Image"
                     >
                       {imageUploading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        <ImageIcon className="w-4 h-4" />
+                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
                       )}
                     </Button>
+
                     <Input
                       type="text"
                       placeholder="Type a polite message..."
                       value={newMessage}
+                      maxLength={FIELD_LIMITS.CHAT_MESSAGE}
                       onChange={(e) => {
                         setNewMessage(e.target.value);
                         handleTyping();
                       }}
-                      className="flex-1"
+                      className="flex-1 h-10 rounded-xl"
                       data-testid="message-input"
                     />
+
                     <Button 
                       type="submit" 
                       disabled={!newMessage.trim() || sending}
-                      className="bg-violet-600 hover:bg-violet-700"
+                      className="bg-violet-600 hover:bg-violet-700 h-10 px-4 rounded-xl shrink-0"
                       data-testid="send-message-btn"
                     >
                       {sending ? (
@@ -583,10 +609,15 @@ export default function Messages() {
                 </form>
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <MessageCircle className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Select a conversation to start chatting</p>
+              <div className="flex-1 flex items-center justify-center p-8 text-center">
+                <div>
+                  <div className="w-16 h-16 rounded-2xl bg-violet-500/10 text-violet-500 flex items-center justify-center mx-auto mb-4 border border-violet-500/20">
+                    <MessageCircle className="w-8 h-8" />
+                  </div>
+                  <h3 className="font-bold text-lg text-foreground">Select a conversation</h3>
+                  <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+                    Choose a chat from the sidebar or click 'Chat with Seller' on any product page.
+                  </p>
                 </div>
               </div>
             )}
@@ -596,67 +627,59 @@ export default function Messages() {
 
       {/* Report Chat Modal */}
       <Dialog open={showReportModal} onOpenChange={setShowReportModal}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Report Chat</DialogTitle>
+            <DialogTitle>Report Conversation</DialogTitle>
             <DialogDescription>
-              {reportMessageId 
-                ? "Report this specific message" 
-                : "Report this conversation for inappropriate behavior"
-              }
+              Report this chat to the moderation team for inspection.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Reason for reporting *</Label>
+              <Label>Reason *</Label>
               <Select value={reportReason} onValueChange={setReportReason}>
-                <SelectTrigger>
+                <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder="Select a reason" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="scam">Scam / Advance payment request</SelectItem>
+                  <SelectItem value="fake_deal">Fake deal / Misleading pricing</SelectItem>
+                  <SelectItem value="harassment">Harassment / Abusive language</SelectItem>
                   <SelectItem value="spam">Spam / Advertising</SelectItem>
-                  <SelectItem value="harassment">Harassment / Abusive behavior</SelectItem>
-                  <SelectItem value="scam">Scam attempt</SelectItem>
-                  <SelectItem value="inappropriate">Inappropriate content</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="other">Other issue</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             
             <div className="space-y-2">
-              <Label>Additional details (optional)</Label>
+              <div className="flex items-center justify-between">
+                <Label>Additional details (optional)</Label>
+                <span className={`text-xs ${reportDetails.length >= FIELD_LIMITS.REPORT_DETAILS ? 'text-amber-500 font-bold' : 'text-muted-foreground'}`}>
+                  {reportDetails.length} / {FIELD_LIMITS.REPORT_DETAILS}
+                </span>
+              </div>
               <Textarea
-                placeholder="Provide more details about the issue..."
+                placeholder="Describe what occurred..."
                 value={reportDetails}
+                maxLength={FIELD_LIMITS.REPORT_DETAILS}
                 onChange={(e) => setReportDetails(e.target.value)}
                 rows={3}
+                className="rounded-xl"
               />
             </div>
           </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowReportModal(false);
-              setReportMessageId(null);
-              setReportReason('');
-              setReportDetails('');
-            }}>
+            <Button variant="outline" onClick={() => setShowReportModal(false)}>
               Cancel
             </Button>
             <Button 
               onClick={handleReportChat}
               disabled={reportLoading || !reportReason}
-              className="bg-red-500 hover:bg-red-600"
+              className="bg-red-500 hover:bg-red-600 text-white font-bold"
             >
-              {reportLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                'Submit Report'
-              )}
+              {reportLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Submit Report'}
             </Button>
           </DialogFooter>
         </DialogContent>

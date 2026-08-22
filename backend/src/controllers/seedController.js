@@ -9,9 +9,17 @@ const generateSlug = require('../utils/generateSlug');
 
 const seedDatabase = async (req, res) => {
   try {
+    const isForce = req.query.force === 'true' || req.body?.force === true;
     const existingAdmin = await User.findOne({ email: 'admin@ggs.com' });
-    if (existingAdmin) {
+    if (existingAdmin && !isForce) {
       return res.status(200).json({ message: 'Database already seeded' });
+    }
+    if (isForce) {
+      await User.deleteMany({});
+      await Category.deleteMany({});
+      await Listing.deleteMany({});
+      await StaticPage.deleteMany({});
+      await BlogPost.deleteMany({});
     }
 
     const hashedAdminPassword = await bcrypt.hash('admin123', 10);
@@ -161,7 +169,7 @@ const seedDatabase = async (req, res) => {
     const listingsData = [
       {
         id: uuidv4(),
-        slug: generateSlug('RTX 4080 Super - Like New'),
+        slug: 'rtx-4080-super-like-new-69b16bac',
         title: 'RTX 4080 Super - Like New',
         description:
           'NVIDIA RTX 4080 Super, used for 3 months. Perfect condition with original box. Great for 4K gaming. Warranty valid till 2025.',
@@ -190,7 +198,7 @@ const seedDatabase = async (req, res) => {
       },
       {
         id: uuidv4(),
-        slug: generateSlug('PlayStation 5 Disc Edition Bundle'),
+        slug: 'playstation-5-disc-edition-bundle-630fdcd5',
         title: 'PlayStation 5 Disc Edition Bundle',
         description:
           'PS5 Disc Edition with 2 controllers and 5 games including Spider-Man 2, God of War Ragnarok. Excellent condition, barely used.',
@@ -219,7 +227,7 @@ const seedDatabase = async (req, res) => {
       },
       {
         id: uuidv4(),
-        slug: generateSlug('Logitech G Pro X Superlight'),
+        slug: 'logitech-g-pro-x-superlight-caf1345c',
         title: 'Logitech G Pro X Superlight',
         description:
           'Top-tier wireless gaming mouse, 63g ultralight. Perfect for competitive FPS gaming. Used for 6 months.',
@@ -248,7 +256,7 @@ const seedDatabase = async (req, res) => {
       },
       {
         id: uuidv4(),
-        slug: generateSlug('Custom Gaming PC - RTX 4070 Ti'),
+        slug: 'custom-gaming-pc-rtx-4070-ti-afd4d63e',
         title: 'Custom Gaming PC - RTX 4070 Ti',
         description:
           'High-end custom build. Intel i7-13700K, RTX 4070 Ti, 32GB DDR5, 2TB NVMe. Built 4 months ago. RGB everything!',
@@ -278,7 +286,7 @@ const seedDatabase = async (req, res) => {
       },
       {
         id: uuidv4(),
-        slug: generateSlug('SteelSeries Arctis Pro Wireless'),
+        slug: 'steelseries-arctis-pro-wireless-4a41fe01',
         title: 'SteelSeries Arctis Pro Wireless',
         description:
           'Premium wireless gaming headset with dual battery system. Hi-Res audio certified. Pristine condition.',
@@ -307,7 +315,7 @@ const seedDatabase = async (req, res) => {
       },
       {
         id: uuidv4(),
-        slug: generateSlug('ASUS ROG Swift 27" 165Hz Monitor'),
+        slug: 'asus-rog-swift-27-165hz-monitor-2c6ce06b',
         title: 'ASUS ROG Swift 27" 165Hz Monitor',
         description:
           '27 inch 1440p IPS gaming monitor. 165Hz, 1ms response, G-Sync compatible. Perfect for competitive gaming.',
@@ -396,39 +404,9 @@ const seedDatabase = async (req, res) => {
         updated_at: new Date().toISOString()
       }
     ];
-    await StaticPage.insertMany(pagesData);
-
-    const blogPostsData = [
-      {
-        id: uuidv4(),
-        title: 'How to Spot a Good GPU Deal',
-        slug: 'how-to-spot-good-gpu-deal',
-        excerpt: 'Learn the key indicators of a legitimate used GPU listing and avoid common scams.',
-        content:
-          '# How to Spot a Good GPU Deal\n\nBuying a used graphics card can be tricky...\n\n## Check the Warranty\n\nAlways ask for warranty status...\n\n## Mining History\n\nBe cautious of cards that were used for mining...',
-        category: 'Buying Guides',
-        cover_image: 'https://images.unsplash.com/photo-1757356747708-f11f10dbda7e?w=800',
-        tags: ['GPU', 'Buying Guide', 'Tips'],
-        author_id: adminDoc.id,
-        views_count: 523,
-        created_at: new Date().toISOString()
-      },
-      {
-        id: uuidv4(),
-        title: 'Top 5 Scams to Avoid When Buying Used Gaming Gear',
-        slug: 'top-5-scams-avoid-buying-used-gaming-gear',
-        excerpt: 'Protect yourself from common scams in the used gaming marketplace.',
-        content:
-          '# Top 5 Scams to Avoid\n\n## 1. Too Good to Be True Prices\n\nIf a deal seems too good...\n\n## 2. No Original Box or Invoice\n\nAlways ask for proof of purchase...',
-        category: 'Scam Awareness',
-        cover_image: 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=800',
-        tags: ['Safety', 'Scams', 'Tips'],
-        author_id: adminDoc.id,
-        views_count: 892,
-        created_at: new Date().toISOString()
-      }
-    ];
-    await BlogPost.insertMany(blogPostsData);
+    // Seed rich static pages and educational blog articles
+    const { seedOrUpdateContent } = require('../utils/seedContent');
+    await seedOrUpdateContent();
 
     return res.status(200).json({
       message: 'Database seeded successfully',
