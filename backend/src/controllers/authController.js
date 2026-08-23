@@ -12,6 +12,7 @@ const {
   sanitizeUsernameInput, 
   USERNAME_ERROR_MESSAGE 
 } = require('../utils/userValidation');
+const { moderateText } = require('../moderation/moderationService');
 
 const formatUserResponse = (user) => ({
   id: user.id,
@@ -30,6 +31,8 @@ const formatUserResponse = (user) => ({
   has_password: Boolean(user.password),
   verification_status: user.verification_status || null,
   avatar: user.avatar || null,
+  avatar_type: user.avatar_type || (user.avatar?.startsWith('http') || user.avatar?.startsWith('/') || user.avatar?.startsWith('data:') ? 'image' : (user.avatar ? 'emoji' : 'image')),
+  avatar_emoji: user.avatar_emoji || (user.avatar && !user.avatar.startsWith('http') && !user.avatar.startsWith('/') && !user.avatar.startsWith('data:') ? user.avatar : null),
   location: user.location || null,
   location_district: user.location_district || null,
   location_taluk: user.location_taluk || null,
@@ -64,6 +67,11 @@ const register = async (req, res) => {
     }
     const cleanName = nameValidation.cleanName;
 
+    const nameMod = await moderateText(cleanName, { type: 'full_name' });
+    if (nameMod.isProhibited) {
+      return res.status(400).json({ detail: 'Full name contains prohibited or offensive language.' });
+    }
+
     if (email) {
       const existingEmail = await User.findOne({ email: email.toLowerCase() });
       if (existingEmail) {
@@ -87,6 +95,11 @@ const register = async (req, res) => {
         return res.status(400).json({ detail: validation.error });
       }
       cleanUsername = validation.cleanUsername;
+
+      const userMod = await moderateText(cleanUsername, { type: 'username' });
+      if (userMod.isProhibited) {
+        return res.status(400).json({ detail: 'Username contains prohibited or offensive language.' });
+      }
 
       const existingUsername = await User.findOne({
         username: { $regex: new RegExp(`^${cleanUsername}$`, 'i') }
@@ -310,12 +323,16 @@ const getMe = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const updateData = {};
-    const { name, username, location, location_district, location_taluk, location_area, bio, avatar } = req.body;
+    const { name, username, location, location_district, location_taluk, location_area, bio, avatar, avatar_type, avatar_emoji } = req.body;
 
     if (name !== undefined && name !== null) {
       const nameValidation = validateFullName(name);
       if (!nameValidation.isValid) {
         return res.status(400).json({ detail: nameValidation.error });
+      }
+      const nameMod = await moderateText(nameValidation.cleanName, { type: 'full_name', userId: req.user.id });
+      if (nameMod.isProhibited) {
+        return res.status(400).json({ detail: 'Full name contains prohibited or offensive language.' });
       }
       updateData.name = nameValidation.cleanName;
     }
@@ -327,6 +344,11 @@ const updateProfile = async (req, res) => {
       }
       const cleanUsername = validation.cleanUsername;
 
+      const userMod = await moderateText(cleanUsername, { type: 'username', userId: req.user.id });
+      if (userMod.isProhibited) {
+        return res.status(400).json({ detail: 'Username contains prohibited or offensive language.' });
+      }
+
       const existing = await User.findOne({
         username: { $regex: new RegExp(`^${cleanUsername}$`, 'i') },
         id: { $ne: req.user.id }
@@ -337,12 +359,31 @@ const updateProfile = async (req, res) => {
       updateData.username = cleanUsername;
     }
 
-    if (avatar !== undefined) updateData.avatar = avatar;
+    if (avatar_type !== undefined) {
+      updateData.avatar_type = avatar_type;
+      if (avatar_type === 'emoji') {
+        updateData.avatar_emoji = avatar_emoji || avatar || null;
+        updateData.avatar = avatar || avatar_emoji || null;
+      } else if (avatar_type === 'image') {
+        updateData.avatar = avatar !== undefined ? avatar : null;
+        updateData.avatar_emoji = null;
+      }
+    } else {
+      if (avatar !== undefined) updateData.avatar = avatar;
+      if (avatar_emoji !== undefined) updateData.avatar_emoji = avatar_emoji;
+    }
+
     if (location !== undefined) updateData.location = location;
     if (location_district !== undefined) updateData.location_district = location_district;
     if (location_taluk !== undefined) updateData.location_taluk = location_taluk;
     if (location_area !== undefined) updateData.location_area = location_area;
-    if (bio !== undefined) updateData.bio = bio;
+    if (bio !== undefined && bio !== null && bio !== '') {
+      const bioMod = await moderateText(bio, { type: 'user_bio', userId: req.user.id });
+      if (bioMod.isProhibited) {
+        return res.status(400).json({ detail: 'Bio contains prohibited or offensive language.' });
+      }
+      updateData.bio = bio;
+    }
 
     if (Object.keys(updateData).length > 0) {
       await User.updateOne({ id: req.user.id }, { $set: updateData });
@@ -368,7 +409,22 @@ const updateProfileSimple = async (req, res) => {
       updateData.name = nameValidation.cleanName;
     }
 
-    const allowed = ['avatar', 'location', 'location_district', 'location_taluk', 'location_area', 'bio'];
+    const { avatar_type, avatar_emoji, avatar } = req.body;
+    if (avatar_type !== undefined) {
+      updateData.avatar_type = avatar_type;
+      if (avatar_type === 'emoji') {
+        updateData.avatar_emoji = avatar_emoji || avatar || null;
+        updateData.avatar = avatar || avatar_emoji || null;
+      } else if (avatar_type === 'image') {
+        updateData.avatar = avatar !== undefined ? avatar : null;
+        updateData.avatar_emoji = null;
+      }
+    } else {
+      if (avatar !== undefined) updateData.avatar = avatar;
+      if (avatar_emoji !== undefined) updateData.avatar_emoji = avatar_emoji;
+    }
+
+    const allowed = ['location', 'location_district', 'location_taluk', 'location_area', 'bio'];
     for (const key of allowed) {
       if (req.body[key] !== undefined && req.body[key] !== null) {
         updateData[key] = req.body[key];

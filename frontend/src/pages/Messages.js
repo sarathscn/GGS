@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../lib/api';
+import Avatar from '../components/Avatar';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -21,9 +22,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { FIELD_LIMITS } from '../lib/fieldLimits';
-import { 
+import {
   Send, 
   ArrowLeft, 
   MessageCircle, 
@@ -35,7 +37,12 @@ import {
   Shield,
   Flag,
   Store,
-  Clock
+  Clock,
+  Trash2,
+  Phone,
+  Mail,
+  UserCheck,
+  Share2
 } from 'lucide-react';
 
 export default function Messages() {
@@ -65,6 +72,18 @@ export default function Messages() {
   const [reportReason, setReportReason] = useState('');
   const [reportDetails, setReportDetails] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+
+  // Delete chat modal
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Conversation limits (message + attachment counters)
+  const [convLimits, setConvLimits] = useState(null);
+
+  // Contact sharing state
+  const [contactSharingStatus, setContactSharingStatus] = useState('NOT_SHARED');
+  const [sharedContact, setSharedContact] = useState(null);
+  const [contactLoading, setContactLoading] = useState(false);
 
   // 1. Handle creating conversation from query params (?listing=X&seller=Y)
   useEffect(() => {
@@ -140,6 +159,11 @@ export default function Messages() {
     };
 
     loadActiveChat();
+    // Also fetch limits and contact sharing status
+    if (conversationId) {
+      fetchLimits(conversationId);
+      fetchSharedContact(conversationId);
+    }
 
     return () => {
       if (wsRef.current) {
@@ -154,6 +178,31 @@ export default function Messages() {
       setMessages(response.data);
     } catch (error) {
       console.error('Failed to fetch messages:', error);
+    }
+  };
+
+  const fetchLimits = async (convId) => {
+    try {
+      const response = await api.get(`/conversations/${convId}/limits`);
+      setConvLimits(response.data);
+      setContactSharingStatus(response.data.contact_sharing_status || 'NOT_SHARED');
+    } catch (error) {
+      console.error('Failed to fetch conversation limits:', error);
+    }
+  };
+
+  const fetchSharedContact = async (convId) => {
+    try {
+      const response = await api.get(`/conversations/${convId}/contact`);
+      if (response.data.contact_sharing_status === 'SHARED') {
+        setSharedContact(response.data.contact);
+        setContactSharingStatus('SHARED');
+      } else {
+        setSharedContact(null);
+        setContactSharingStatus('NOT_SHARED');
+      }
+    } catch (error) {
+      console.error('Failed to fetch shared contact:', error);
     }
   };
 
@@ -180,12 +229,33 @@ export default function Messages() {
                 ? { ...c, last_message: (data.message.text || 'Attachment').slice(0, 50), last_message_at: data.message.created_at }
                 : c
             ));
+            // Update limits from the response if provided
+            if (data.message.message_limit) {
+              setConvLimits(prev => ({
+                ...(prev || {}),
+                message_count: data.message.conversation_message_count ?? ((prev?.message_count || 0) + 1),
+                attachment_count: data.message.attachment_url
+                  ? data.message.conversation_attachment_count ?? ((prev?.attachment_count || 0) + 1)
+                  : (prev?.attachment_count || 0),
+                message_limit: data.message.message_limit || 100,
+                attachment_limit: data.message.attachment_limit || 5
+              }));
+            }
           } else if (data.type === 'typing') {
             setOtherUserTyping(data.is_typing);
           } else if (data.type === 'message_read') {
             setMessages(prev => prev.map(msg => 
               msg.id === data.message_id ? { ...msg, is_read: true } : msg
             ));
+          } else if (data.type === 'contact_shared') {
+            setContactSharingStatus('SHARED');
+            setSharedContact(data.contact);
+            if (user && selectedConversation && user.id !== selectedConversation.seller_id) {
+              toast.success('The seller has shared their contact details with you!');
+            }
+          } else if (data.type === 'contact_revoked') {
+            setContactSharingStatus('NOT_SHARED');
+            setSharedContact(null);
           }
         } catch (err) {
           // ignore parsing error
@@ -237,6 +307,7 @@ export default function Messages() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('type', 'message');
       const uploadRes = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -256,6 +327,14 @@ export default function Messages() {
           ? { ...c, last_message: '📷 Image Attachment', last_message_at: new Date().toISOString() }
           : c
       ));
+      // Update attachment count
+      setConvLimits(prev => ({
+        ...(prev || {}),
+        message_count: response.data.conversation_message_count ?? ((prev?.message_count || 0) + 1),
+        attachment_count: response.data.conversation_attachment_count ?? ((prev?.attachment_count || 0) + 1),
+        message_limit: response.data.message_limit || 100,
+        attachment_limit: response.data.attachment_limit || 5
+      }));
     } catch (error) {
       toast.error('Failed to upload image');
     } finally {
@@ -295,6 +374,14 @@ export default function Messages() {
       if (response.data.is_flagged) {
         toast.warning('Your message contained filtered keywords for user safety.');
       }
+      // Update local limits counters
+      setConvLimits(prev => ({
+        ...(prev || {}),
+        message_count: response.data.conversation_message_count ?? ((prev?.message_count || 0) + 1),
+        attachment_count: prev?.attachment_count || 0,
+        message_limit: response.data.message_limit || 100,
+        attachment_limit: response.data.attachment_limit || 5
+      }));
     } catch (error) {
       toast.error('Failed to send message. Please try again.');
       setNewMessage(messageText);
@@ -334,6 +421,67 @@ export default function Messages() {
     setShowReportModal(true);
   };
 
+  const handleDeleteConversation = () => {
+    if (!selectedConversation) return;
+    setShowDeleteModal(true);
+  };
+
+  const isSeller = selectedConversation && user && selectedConversation.seller_id === user.id;
+
+  const handleShareContact = async () => {
+    if (!selectedConversation || !isSeller || contactLoading) return;
+    setContactLoading(true);
+    try {
+      const response = await api.post(`/conversations/${selectedConversation.id}/contact/share`);
+      setContactSharingStatus('SHARED');
+      setSharedContact(response.data.contact);
+      toast.success('Your contact details have been shared with the buyer.');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to share contact');
+    } finally {
+      setContactLoading(false);
+    }
+  };
+
+  const handleRevokeContact = async () => {
+    if (!selectedConversation || !isSeller || contactLoading) return;
+    setContactLoading(true);
+    try {
+      await api.post(`/conversations/${selectedConversation.id}/contact/revoke`);
+      setContactSharingStatus('NOT_SHARED');
+      setSharedContact(null);
+      toast.success('Contact details have been revoked.');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to revoke contact');
+    } finally {
+      setContactLoading(false);
+    }
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!selectedConversation || deleteLoading) return;
+    
+    setDeleteLoading(true);
+    try {
+      await api.delete(`/conversations/${selectedConversation.id}`);
+      setConversations(prev => prev.filter(c => c.id !== selectedConversation.id));
+      setSelectedConversation(null);
+      setMessages([]);
+      setShowDeleteModal(false);
+      navigate('/messages', { replace: true });
+      toast.success('Conversation removed from your inbox');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete conversation');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const isClosed = selectedConversation?.status === 'closed_sold' || selectedConversation?.status === 'closed_expired';
+  const msgLimitReached = convLimits && convLimits.message_count >= convLimits.message_limit;
+  const attachLimitReached = convLimits && convLimits.attachment_count >= convLimits.attachment_limit;
+  const msgLimitWarning = convLimits && !msgLimitReached && convLimits.message_count >= convLimits.message_limit - 10;
+
   const formatTime = (dateString) => {
     return new Date(dateString).toLocaleTimeString('en-IN', {
       hour: '2-digit',
@@ -365,14 +513,16 @@ export default function Messages() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4.5rem)] py-3 sm:py-6 bg-background">
-      <div className="max-w-6xl mx-auto px-2 sm:px-4 lg:px-6 h-[calc(100vh-6rem)] sm:h-[calc(100vh-7.5rem)]">
-        <div className="bg-card border border-border rounded-2xl overflow-hidden h-full flex shadow-xl shadow-black/5">
-          
-          {/* Left Sidebar: Conversations List */}
-          <div className={`w-full md:w-80 lg:w-96 border-r border-border flex flex-col ${selectedConversation ? 'hidden md:flex' : 'flex'}`}>
+    <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-8" data-testid="messages-page">
+      <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm flex flex-col h-[calc(100vh-8rem)] min-h-[500px]">
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Conversations Sidebar */}
+          <div className={`w-full md:w-80 lg:w-96 border-r border-border flex flex-col bg-card ${selectedConversation ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-4 border-b border-border flex items-center justify-between">
-              <h1 className="font-black text-lg text-foreground tracking-tight">Messages</h1>
+              <h2 className="font-bold text-lg text-foreground flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-violet-500" />
+                Messages
+              </h2>
               <span className="text-xs text-muted-foreground font-mono">
                 {conversations.length} {conversations.length === 1 ? 'chat' : 'chats'}
               </span>
@@ -389,22 +539,29 @@ export default function Messages() {
                     }`}
                   >
                     <div className="flex gap-3 items-center">
-                      <div className="w-11 h-11 rounded-full bg-violet-600/10 flex items-center justify-center flex-shrink-0 overflow-hidden border border-violet-500/20">
-                        {conv.other_user_avatar ? (
-                          <img src={conv.other_user_avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          <span className="font-bold text-violet-500 text-sm">{conv.other_user_name?.[0] || 'U'}</span>
-                        )}
-                      </div>
+                      <Avatar
+                        src={conv.other_user_avatar}
+                        name={conv.other_user_name}
+                        size="lg"
+                        className="w-11 h-11 border border-violet-500/20"
+                      />
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-0.5">
                           <p className="font-bold text-sm truncate text-foreground">{conv.other_user_name}</p>
-                          {conv.unread_count > 0 && (
-                            <span className="h-4 min-w-[16px] px-1 bg-violet-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                              {conv.unread_count}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {conv.status === 'closed_sold' && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 border-cyan-500/40 text-cyan-500">SOLD</Badge>
+                            )}
+                            {conv.status === 'closed_expired' && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 text-muted-foreground">EXPIRED</Badge>
+                            )}
+                            {conv.unread_count > 0 && (
+                              <span className="h-4 min-w-[16px] px-1 bg-violet-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                                {conv.unread_count}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <p className="text-xs text-muted-foreground truncate font-medium">{conv.listing_title}</p>
                         {conv.last_message && (
@@ -458,9 +615,21 @@ export default function Messages() {
                       />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-sm truncate text-foreground group-hover:text-violet-500 transition-colors">
-                        {selectedConversation.other_user_name}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-sm truncate text-foreground group-hover:text-violet-500 transition-colors">
+                          {selectedConversation.other_user_name}
+                        </p>
+                        {selectedConversation.status === 'closed_sold' && (
+                          <Badge className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20 text-[10px] px-1.5 py-0">
+                            LISTING SOLD
+                          </Badge>
+                        )}
+                        {selectedConversation.status === 'closed_expired' && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+                            EXPIRED (60D)
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground truncate">{selectedConversation.listing_title}</p>
                     </div>
                   </Link>
@@ -478,6 +647,16 @@ export default function Messages() {
                     >
                       <Flag className="w-4 h-4" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      onClick={handleDeleteConversation}
+                      title="Delete conversation from inbox"
+                      data-testid="delete-conversation-btn"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
 
@@ -486,6 +665,70 @@ export default function Messages() {
                   <Shield className="w-3.5 h-3.5 shrink-0" />
                   <span>Meet in safe public spots in Kerala. Inspect hardware before payment. Never share OTPs.</span>
                 </div>
+
+                {/* Shared Contact Card (shown to buyer when seller has shared contact) */}
+                {contactSharingStatus === 'SHARED' && sharedContact && (
+                  <div className="px-4 py-2.5 border-b border-border bg-emerald-500/5">
+                    <div className="flex items-start gap-3">
+                      <UserCheck className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">
+                          {isSeller ? 'You have shared your contact with this buyer' : 'Seller has shared their contact with you'}
+                        </p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          {sharedContact.phone && (
+                            <a href={`tel:${sharedContact.phone}`} className="flex items-center gap-1.5 text-xs text-foreground hover:text-emerald-600 transition-colors">
+                              <Phone className="w-3 h-3" />
+                              <span className="font-mono">{sharedContact.phone}</span>
+                            </a>
+                          )}
+                          {sharedContact.email && (
+                            <a href={`mailto:${sharedContact.email}`} className="flex items-center gap-1.5 text-xs text-foreground hover:text-emerald-600 transition-colors">
+                              <Mail className="w-3 h-3" />
+                              <span>{sharedContact.email}</span>
+                            </a>
+                          )}
+                          {!sharedContact.phone && !sharedContact.email && (
+                            <span className="text-xs text-muted-foreground">No contact details on profile.</span>
+                          )}
+                        </div>
+                      </div>
+                      {isSeller && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-[11px] h-7 px-2 text-muted-foreground hover:text-destructive shrink-0"
+                          onClick={handleRevokeContact}
+                          disabled={contactLoading}
+                        >
+                          {contactLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Revoke'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Seller Share Contact Prompt (only shown to seller when not yet shared, conversation is open) */}
+                {isSeller && contactSharingStatus === 'NOT_SHARED' && !isClosed && (
+                  <div className="px-4 py-2 border-b border-border bg-muted/30">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-muted-foreground">
+                        <Share2 className="w-3 h-3 inline mr-1" />
+                        Share your contact details (phone/email) with this buyer?
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-[11px] h-7 px-2.5 shrink-0 border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
+                        onClick={handleShareContact}
+                        disabled={contactLoading}
+                      >
+                        {contactLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <UserCheck className="w-3 h-3 mr-1" />}
+                        Share
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Messages Container */}
                 <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3.5">
@@ -503,13 +746,12 @@ export default function Messages() {
                         )}
                         <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                           {!isOwn && (
-                            <div className="w-7 h-7 rounded-full bg-violet-600/10 flex items-center justify-center mr-2 flex-shrink-0 overflow-hidden text-xs font-bold text-violet-500">
-                              {msg.sender_avatar ? (
-                                <img src={msg.sender_avatar} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                msg.sender_name?.[0] || 'U'
-                              )}
-                            </div>
+                            <Avatar
+                              src={msg.sender_avatar}
+                              name={msg.sender_name}
+                              size="sm"
+                              className="w-7 h-7 mr-2 border border-violet-500/20"
+                            />
                           )}
                           <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
                             isOwn 
@@ -554,59 +796,102 @@ export default function Messages() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Message Input Footer */}
-                <form onSubmit={sendMessage} className="p-3 sm:p-4 border-t border-border bg-card">
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      ref={fileInputRef}
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-10 w-10 rounded-xl shrink-0"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={imageUploading}
-                      title="Attach Image"
-                    >
-                      {imageUploading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </Button>
-
-                    <Input
-                      type="text"
-                      placeholder="Type a polite message..."
-                      value={newMessage}
-                      maxLength={FIELD_LIMITS.CHAT_MESSAGE}
-                      onChange={(e) => {
-                        setNewMessage(e.target.value);
-                        handleTyping();
-                      }}
-                      className="flex-1 h-10 rounded-xl"
-                      data-testid="message-input"
-                    />
-
-                    <Button 
-                      type="submit" 
-                      disabled={!newMessage.trim() || sending}
-                      className="bg-violet-600 hover:bg-violet-700 h-10 px-4 rounded-xl shrink-0"
-                      data-testid="send-message-btn"
-                    >
-                      {sending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
-                      )}
-                    </Button>
+                {/* Message Input Footer or Closed Banner */}
+                {isClosed ? (
+                  <div className="p-4 border-t border-border bg-muted/40 text-center">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>
+                        {selectedConversation.status === 'closed_sold'
+                          ? 'This conversation is closed because the listing has been marked as sold.'
+                          : 'This conversation is closed because it has expired after 60 days.'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Full conversation history is preserved for review. New messages cannot be sent.
+                    </p>
                   </div>
-                </form>
+                ) : msgLimitReached ? (
+                  <div className="p-4 border-t border-border bg-muted/40 text-center">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>Message limit reached ({convLimits.message_limit} messages). This conversation has ended.</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Marketplace conversations are limited to {convLimits.message_limit} messages to keep negotiations focused.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Limit progress bar (only shown when approaching limits) */}
+                    {convLimits && (msgLimitWarning || (convLimits.attachment_count >= convLimits.attachment_limit - 1 && convLimits.attachment_limit > 0)) && (
+                      <div className="px-4 py-1.5 border-t border-border bg-muted/30 flex items-center gap-3 text-[11px] text-muted-foreground">
+                        {msgLimitWarning && (
+                          <span className="text-amber-500 font-semibold">
+                            {convLimits.message_limit - convLimits.message_count} messages remaining
+                          </span>
+                        )}
+                        {convLimits.attachment_count >= convLimits.attachment_limit - 1 && convLimits.attachment_limit > 0 && (
+                          <span className={`font-semibold ${attachLimitReached ? 'text-red-500' : 'text-amber-500'}`}>
+                            {attachLimitReached ? 'Image limit reached' : `${convLimits.attachment_limit - convLimits.attachment_count} image(s) left`}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <form onSubmit={sendMessage} className="p-3 sm:p-4 border-t border-border bg-card">
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          ref={fileInputRef}
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-10 w-10 rounded-xl shrink-0"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={imageUploading || attachLimitReached}
+                          title={attachLimitReached ? `Image limit reached (${convLimits?.attachment_limit} max)` : 'Attach Image'}
+                        >
+                          {imageUploading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <ImageIcon className={`w-4 h-4 ${attachLimitReached ? 'text-muted-foreground/40' : 'text-muted-foreground'}`} />
+                          )}
+                        </Button>
+
+                        <Input
+                          type="text"
+                          placeholder="Type a polite message..."
+                          value={newMessage}
+                          maxLength={FIELD_LIMITS.CHAT_MESSAGE}
+                          onChange={(e) => {
+                            setNewMessage(e.target.value);
+                            handleTyping();
+                          }}
+                          className="flex-1 h-10 rounded-xl"
+                          data-testid="message-input"
+                        />
+
+                        <Button 
+                          type="submit" 
+                          disabled={!newMessage.trim() || sending}
+                          className="bg-violet-600 hover:bg-violet-700 h-10 px-4 rounded-xl shrink-0"
+                          data-testid="send-message-btn"
+                        >
+                          {sending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Send className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </form>
+                  </>
+                )}
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center p-8 text-center">
@@ -680,6 +965,48 @@ export default function Messages() {
               className="bg-red-500 hover:bg-red-600 text-white font-bold"
             >
               {reportLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : 'Submit Report'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Conversation Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="rounded-2xl max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" />
+              Delete Conversation
+            </DialogTitle>
+            <DialogDescription className="text-left pt-2 text-foreground/80">
+              Are you sure you want to remove this chat with <strong className="text-foreground">{selectedConversation?.other_user_name}</strong> from your inbox?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-muted/50 p-3 rounded-xl border border-border text-xs text-muted-foreground">
+            Deleting this chat removes it from your personal conversation list. Retained history remains safely archived for safety and moderation.
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={confirmDeleteConversation}
+              disabled={deleteLoading}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              data-testid="confirm-delete-conversation-btn"
+            >
+              {deleteLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Removing...
+                </>
+              ) : (
+                'Delete Chat'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

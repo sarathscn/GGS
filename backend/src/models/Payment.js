@@ -17,6 +17,8 @@ const paymentSchema = new mongoose.Schema(
     policy_accepted: { type: Boolean, default: false },
     policy_version: { type: String, default: 'v2.0' },
     policy_accepted_at: { type: String, default: null },
+    invoice_number: { type: String, default: null, index: true },
+    invoice_status: { type: String, default: 'issued' },
     created_at: { type: String, default: () => new Date().toISOString() }
   },
   {

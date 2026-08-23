@@ -424,9 +424,6 @@ export default function Signup() {
                       maxLength={6}
                       data-testid="signup-otp-input"
                     />
-                    {mockOtp && (
-                      <p className="text-xs text-amber-500">Mock OTP for testing: {mockOtp}</p>
-                    )}
                     <Button
                       type="button"
                       variant="ghost"

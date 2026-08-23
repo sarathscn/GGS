@@ -10,7 +10,17 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Review = require('../models/Review');
 const Category = require('../models/Category');
+const ModerationRecord = require('../models/ModerationRecord');
+const ModerationTerm = require('../models/ModerationTerm');
+const AuditLog = require('../models/AuditLog');
+const { OFFENSIVE_TERMS, ALL_TERMS } = require('../moderation/dictionary/offensiveTerms');
 const { enrichListing } = require('./listingController');
+const { logAuditEvent } = require('../utils/auditLogger');
+const {
+  invalidateModerationDictionaryCache,
+  seedDefaultModerationTermsIfEmpty,
+  loadActiveModerationTermsFromDb
+} = require('../moderation/moderationService');
 
 // GET /api/admin/users
 const getUsers = async (req, res) => {
@@ -82,8 +92,17 @@ const updateListing = async (req, res) => {
     const { status, featured } = req.body;
 
     const updateData = {};
-    if (status !== undefined) updateData.status = status;
-    if (featured !== undefined) updateData.featured = featured;
+    if (status !== undefined) {
+      updateData.status = status;
+      if (status === 'deleted') {
+        updateData.is_deleted = true;
+        updateData.featured = false;
+        updateData.deleted_at = new Date().toISOString();
+      }
+    }
+    if (featured !== undefined) {
+      updateData.featured = Boolean(featured);
+    }
 
     if (Object.keys(updateData).length > 0) {
       await Listing.updateOne({ id: listing_id }, { $set: updateData });
@@ -104,18 +123,50 @@ const updateListing = async (req, res) => {
 // GET /api/admin/payments
 const getPayments = async (req, res) => {
   try {
-    const { user_id } = req.query;
+    const { user_id, status, search } = req.query;
     const query = {};
     if (user_id) query.user_id = user_id;
+    if (status && status !== 'all') query.status = status;
 
     const payments = await Payment.find(query).sort({ created_at: -1 }).limit(1000).lean();
-    return res.status(200).json(
-      payments.map((p) => {
-        delete p._id;
-        delete p.__v;
-        return p;
-      })
-    );
+
+    const userIds = [...new Set(payments.map((p) => p.user_id))];
+    const listingIds = [...new Set(payments.map((p) => p.listing_id))];
+
+    const [users, listings] = await Promise.all([
+      User.find({ id: { $in: userIds } }, { password: 0 }).lean(),
+      Listing.find({ id: { $in: listingIds } }).lean()
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const listingMap = new Map(listings.map((l) => [l.id, l]));
+
+    let enriched = payments.map((p) => {
+      delete p._id;
+      delete p.__v;
+      const user = userMap.get(p.user_id);
+      const listing = listingMap.get(p.listing_id);
+      p.user_name = user ? user.name : 'Unknown User';
+      p.user_email = user ? user.email : null;
+      p.user_phone = user ? user.phone : null;
+      p.ad_title = listing ? listing.title : 'Listing Service Fee';
+      p.invoice_number = p.invoice_number || `GGS-INV-${p.id.replace(/-/g, '').substring(0, 8).toUpperCase()}`;
+      return p;
+    });
+
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      enriched = enriched.filter((p) =>
+        (p.id && p.id.toLowerCase().includes(q)) ||
+        (p.transaction_id && p.transaction_id.toLowerCase().includes(q)) ||
+        (p.invoice_number && p.invoice_number.toLowerCase().includes(q)) ||
+        (p.user_name && p.user_name.toLowerCase().includes(q)) ||
+        (p.user_email && p.user_email.toLowerCase().includes(q)) ||
+        (p.ad_title && p.ad_title.toLowerCase().includes(q))
+      );
+    }
+
+    return res.status(200).json(enriched);
   } catch (error) {
     console.error('Admin get payments error:', error);
     return res.status(500).json({ detail: error.message });
@@ -348,13 +399,19 @@ const bulkListingAction = async (req, res) => {
     for (const listingId of listing_ids) {
       try {
         if (action === 'delete') {
-          await Listing.updateOne({ id: listingId }, { $set: { status: 'deleted' } });
+          await Listing.updateOne(
+            { id: listingId },
+            { $set: { status: 'deleted', is_deleted: true, deleted_at: new Date().toISOString(), featured: false } }
+          );
         } else if (action === 'approve') {
-          await Listing.updateOne({ id: listingId }, { $set: { status: 'active' } });
+          await Listing.updateOne({ id: listingId }, { $set: { status: 'active', is_deleted: false } });
         } else if (action === 'reject') {
-          await Listing.updateOne({ id: listingId }, { $set: { status: 'rejected' } });
+          await Listing.updateOne({ id: listingId }, { $set: { status: 'rejected', featured: false } });
         } else if (action === 'feature') {
-          await Listing.updateOne({ id: listingId }, { $set: { featured: true } });
+          await Listing.updateOne(
+            { id: listingId, status: 'active', is_deleted: { $ne: true } },
+            { $set: { featured: true } }
+          );
         } else if (action === 'unfeature') {
           await Listing.updateOne({ id: listingId }, { $set: { featured: false } });
         }
@@ -780,16 +837,26 @@ const removeReportedListing = async (req, res) => {
     }
 
     if (report.target_type === 'listing' && report.target_id) {
-      await Listing.updateOne(
-        { id: report.target_id },
-        { 
-          $set: { 
-            status: 'deleted',
-            moderation_note: reason,
-            updated_at: new Date().toISOString()
-          } 
-        }
-      );
+      const existingListing = await Listing.findOne({ id: report.target_id });
+      if (existingListing) {
+        const prevStatus = existingListing.status !== 'deleted' ? existingListing.status : (existingListing.previous_status || 'active');
+        await Listing.updateOne(
+          { id: report.target_id },
+          { 
+            $set: { 
+              status: 'deleted',
+              is_deleted: true,
+              featured: false,
+              previous_status: prevStatus,
+              deleted_at: new Date().toISOString(),
+              deleted_by: adminUser.id,
+              deletion_reason: reason,
+              moderation_note: reason,
+              updated_at: new Date().toISOString()
+            } 
+          }
+        );
+      }
     }
 
     await Report.updateOne(
@@ -926,11 +993,597 @@ const exportData = async (req, res) => {
   }
 };
 
+// GET /api/admin/moderation/records
+const getModerationRecords = async (req, res) => {
+  try {
+    const { status, severity, content_type } = req.query;
+    const query = {};
+    if (status && status !== 'all') query.status = status;
+    if (severity && severity !== 'all') query.severity = severity;
+    if (content_type && content_type !== 'all') query.content_type = content_type;
+
+    const records = await ModerationRecord.find(query).sort({ created_at: -1 }).limit(500).lean();
+
+    // Enrich with user info if available
+    const userIds = [...new Set(records.map((r) => r.user_id).filter(Boolean))];
+    const users = await User.find({ id: { $in: userIds } }, { password: 0 }).lean();
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const enriched = records.map((rec) => {
+      delete rec._id;
+      delete rec.__v;
+      const user = userMap.get(rec.user_id);
+      if (user) {
+        rec.user_email = user.email || user.phone || null;
+        rec.user_name = user.name || rec.user_name;
+      }
+      return rec;
+    });
+
+    return res.status(200).json(enriched);
+  } catch (error) {
+    console.error('Get moderation records error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// PUT /api/admin/moderation/records/:record_id/review
+const reviewModerationRecord = async (req, res) => {
+  try {
+    const { record_id } = req.params;
+    const { action = 'dismissed', admin_notes = '' } = req.body; // approved, rejected, dismissed
+    const admin = req.user;
+
+    const record = await ModerationRecord.findOne({ id: record_id });
+    if (!record) {
+      return res.status(404).json({ detail: 'Moderation record not found' });
+    }
+
+    record.status = action;
+    record.action_taken = action === 'dismissed' ? 'DISMISSED' : (action === 'approved' ? 'APPROVED' : 'REJECTED');
+    record.admin_notes = admin_notes || record.admin_notes;
+    record.reviewed_by = admin.id;
+    record.reviewed_at = new Date().toISOString();
+
+    await record.save();
+    return res.status(200).json({ success: true, record });
+  } catch (error) {
+    console.error('Review moderation record error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/moderation/stats
+const getModerationStats = async (req, res) => {
+  try {
+    await seedDefaultModerationTermsIfEmpty();
+    const [total, pending, autoBlocked, flagged, approved, rejected, dismissed, termsCount] = await Promise.all([
+      ModerationRecord.countDocuments({}),
+      ModerationRecord.countDocuments({ status: 'pending' }),
+      ModerationRecord.countDocuments({ action_taken: 'AUTO_BLOCKED' }),
+      ModerationRecord.countDocuments({ action_taken: 'FLAGGED' }),
+      ModerationRecord.countDocuments({ status: 'approved' }),
+      ModerationRecord.countDocuments({ status: 'rejected' }),
+      ModerationRecord.countDocuments({ status: 'dismissed' }),
+      ModerationTerm.countDocuments({})
+    ]);
+
+    return res.status(200).json({
+      total,
+      pending,
+      auto_blocked: autoBlocked,
+      flagged,
+      approved,
+      rejected,
+      dismissed,
+      total_seed_terms: termsCount || ALL_TERMS.length
+    });
+  } catch (error) {
+    console.error('Get moderation stats error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/moderation/terms
+const getModerationTerms = async (req, res) => {
+  try {
+    await seedDefaultModerationTermsIfEmpty();
+
+    const { search, language, category, severity, enabled, limit = 500, skip = 0 } = req.query;
+    const query = {};
+
+    if (language && language !== 'all') {
+      query.language = language;
+    }
+    if (category && category !== 'all') {
+      query.category = category;
+    }
+    if (severity && severity !== 'all') {
+      query.severity = severity;
+    }
+    if (enabled !== undefined && enabled !== '' && enabled !== 'all') {
+      query.enabled = enabled === 'true' || enabled === true;
+    }
+    if (search && search.trim()) {
+      const q = search.trim();
+      query.$or = [
+        { term: { $regex: q, $options: 'i' } },
+        { variants: { $regex: q, $options: 'i' } },
+        { category: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const [total, terms, englishCount, malayalamCount, transliterationCount, obfuscatedCount] = await Promise.all([
+      ModerationTerm.countDocuments(query),
+      ModerationTerm.find(query)
+        .sort({ created_at: -1, term: 1 })
+        .skip(Number(skip))
+        .limit(Number(limit))
+        .lean(),
+      ModerationTerm.countDocuments({ language: 'english' }),
+      ModerationTerm.countDocuments({ language: 'malayalam' }),
+      ModerationTerm.countDocuments({ language: 'malayalam_transliteration' }),
+      ModerationTerm.countDocuments({ language: 'obfuscated' })
+    ]);
+
+    return res.status(200).json({
+      total,
+      summary: {
+        total: englishCount + malayalamCount + transliterationCount + obfuscatedCount,
+        english: englishCount,
+        malayalam: malayalamCount,
+        malayalam_transliteration: transliterationCount,
+        obfuscated: obfuscatedCount
+      },
+      terms: terms.map((t) => {
+        delete t._id;
+        delete t.__v;
+        return t;
+      })
+    });
+  } catch (error) {
+    console.error('Get moderation terms error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/moderation/terms
+const createModerationTerm = async (req, res) => {
+  try {
+    const adminUser = req.user;
+    const { term, language = 'english', category = 'profanity', severity = 'HIGH', variants = [], transliterations = [] } = req.body;
+
+    if (!term || !term.trim()) {
+      return res.status(400).json({ detail: 'Term is required' });
+    }
+
+    const trimmedTerm = term.trim().toLowerCase();
+
+    const existing = await ModerationTerm.findOne({ term: trimmedTerm, language });
+    if (existing) {
+      return res.status(400).json({ detail: `Term "${trimmedTerm}" already exists for language "${language}"` });
+    }
+
+    const newDoc = new ModerationTerm({
+      id: uuidv4(),
+      term: trimmedTerm,
+      language,
+      category,
+      severity,
+      enabled: true,
+      variants: Array.isArray(variants) ? variants.map((v) => v.trim()).filter(Boolean) : [],
+      transliterations: Array.isArray(transliterations) ? transliterations.map((t) => t.trim()).filter(Boolean) : [],
+      is_seed: false,
+      created_by: adminUser.email || adminUser.id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    await newDoc.save();
+    invalidateModerationDictionaryCache();
+    await loadActiveModerationTermsFromDb();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'moderation_term',
+      entity_id: newDoc.id,
+      action: 'MODERATION_TERM_ADDED',
+      new_state: newDoc.toJSON(),
+      reason: `Added term: ${trimmedTerm} (${language}/${severity})`,
+      req
+    });
+
+    return res.status(201).json({ success: true, term: newDoc.toJSON() });
+  } catch (error) {
+    console.error('Create moderation term error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// PUT /api/admin/moderation/terms/:term_id
+const updateModerationTerm = async (req, res) => {
+  try {
+    const { term_id } = req.params;
+    const adminUser = req.user;
+    const { term, language, category, severity, enabled, variants, transliterations } = req.body;
+
+    const termDoc = await ModerationTerm.findOne({ id: term_id });
+    if (!termDoc) {
+      return res.status(404).json({ detail: 'Moderation term not found' });
+    }
+
+    const prev = termDoc.toJSON();
+
+    if (term !== undefined && term.trim()) termDoc.term = term.trim().toLowerCase();
+    if (language !== undefined) termDoc.language = language;
+    if (category !== undefined) termDoc.category = category;
+    if (severity !== undefined) termDoc.severity = severity;
+    if (enabled !== undefined) termDoc.enabled = Boolean(enabled);
+    if (variants !== undefined && Array.isArray(variants)) {
+      termDoc.variants = variants.map((v) => v.trim()).filter(Boolean);
+    }
+    if (transliterations !== undefined && Array.isArray(transliterations)) {
+      termDoc.transliterations = transliterations.map((t) => t.trim()).filter(Boolean);
+    }
+
+    termDoc.updated_by = adminUser.email || adminUser.id;
+    termDoc.updated_at = new Date().toISOString();
+
+    await termDoc.save();
+    invalidateModerationDictionaryCache();
+    await loadActiveModerationTermsFromDb();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'moderation_term',
+      entity_id: termDoc.id,
+      action: 'MODERATION_TERM_UPDATED',
+      previous_state: prev,
+      new_state: termDoc.toJSON(),
+      reason: `Updated term: ${termDoc.term}`,
+      req
+    });
+
+    return res.status(200).json({ success: true, term: termDoc.toJSON() });
+  } catch (error) {
+    console.error('Update moderation term error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// DELETE /api/admin/moderation/terms/:term_id
+const deleteModerationTerm = async (req, res) => {
+  try {
+    const { term_id } = req.params;
+    const adminUser = req.user;
+
+    const termDoc = await ModerationTerm.findOne({ id: term_id });
+    if (!termDoc) {
+      return res.status(404).json({ detail: 'Moderation term not found' });
+    }
+
+    const prev = termDoc.toJSON();
+    await ModerationTerm.deleteOne({ id: term_id });
+    invalidateModerationDictionaryCache();
+    await loadActiveModerationTermsFromDb();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'moderation_term',
+      entity_id: term_id,
+      action: 'MODERATION_TERM_DELETED',
+      previous_state: prev,
+      reason: `Deleted term: ${termDoc.term}`,
+      req
+    });
+
+    return res.status(200).json({ success: true, message: 'Term deleted successfully' });
+  } catch (error) {
+    console.error('Delete moderation term error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// PATCH /api/admin/moderation/terms/:term_id/toggle
+const toggleModerationTerm = async (req, res) => {
+  try {
+    const { term_id } = req.params;
+    const adminUser = req.user;
+
+    const termDoc = await ModerationTerm.findOne({ id: term_id });
+    if (!termDoc) {
+      return res.status(404).json({ detail: 'Moderation term not found' });
+    }
+
+    termDoc.enabled = !termDoc.enabled;
+    termDoc.updated_by = adminUser.email || adminUser.id;
+    termDoc.updated_at = new Date().toISOString();
+    await termDoc.save();
+
+    invalidateModerationDictionaryCache();
+    await loadActiveModerationTermsFromDb();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'moderation_term',
+      entity_id: termDoc.id,
+      action: termDoc.enabled ? 'MODERATION_TERM_ENABLED' : 'MODERATION_TERM_DISABLED',
+      new_state: { enabled: termDoc.enabled },
+      reason: `Toggled term ${termDoc.term} to ${termDoc.enabled ? 'ENABLED' : 'DISABLED'}`,
+      req
+    });
+
+    return res.status(200).json({ success: true, term: termDoc.toJSON() });
+  } catch (error) {
+    console.error('Toggle moderation term error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/moderation/terms/import
+const importModerationTerms = async (req, res) => {
+  try {
+    const adminUser = req.user;
+    const { terms } = req.body;
+
+    if (!Array.isArray(terms) || terms.length === 0) {
+      return res.status(400).json({ detail: 'terms array is required for import' });
+    }
+
+    let importedCount = 0;
+    for (const item of terms) {
+      if (item.term && item.term.trim()) {
+        const trimmed = item.term.trim().toLowerCase();
+        const lang = item.language || 'english';
+        await ModerationTerm.findOneAndUpdate(
+          { term: trimmed, language: lang },
+          {
+            $set: {
+              category: item.category || 'profanity',
+              severity: item.severity || 'HIGH',
+              enabled: item.enabled !== undefined ? Boolean(item.enabled) : true,
+              variants: Array.isArray(item.variants) ? item.variants : [],
+              transliterations: Array.isArray(item.transliterations) ? item.transliterations : [],
+              updated_by: adminUser.email || adminUser.id,
+              updated_at: new Date().toISOString()
+            },
+            $setOnInsert: {
+              id: uuidv4(),
+              is_seed: false,
+              created_by: adminUser.email || adminUser.id,
+              created_at: new Date().toISOString()
+            }
+          },
+          { upsert: true, new: true }
+        );
+        importedCount += 1;
+      }
+    }
+
+    invalidateModerationDictionaryCache();
+    await loadActiveModerationTermsFromDb();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'moderation_term',
+      entity_id: 'bulk_import',
+      action: 'MODERATION_TERMS_IMPORTED',
+      reason: `Imported/updated ${importedCount} moderation terms`,
+      req
+    });
+
+    return res.status(200).json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} terms` });
+  } catch (error) {
+    console.error('Import moderation terms error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/moderation/terms/export
+const exportModerationTerms = async (req, res) => {
+  try {
+    await seedDefaultModerationTermsIfEmpty();
+    const terms = await ModerationTerm.find({}).sort({ language: 1, term: 1 }).lean();
+    return res.status(200).json(
+      terms.map((t) => {
+        delete t._id;
+        delete t.__v;
+        return t;
+      })
+    );
+  } catch (error) {
+    console.error('Export moderation terms error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// DELETE /api/admin/listings/:listing_id (Soft-Delete)
+const deleteListingAdmin = async (req, res) => {
+  try {
+    const { listing_id } = req.params;
+    const { reason = 'Removed by administrator' } = req.body || {};
+    const adminUser = req.user;
+
+    const listing = await Listing.findOne({ id: listing_id });
+    if (!listing) {
+      return res.status(404).json({ detail: 'Listing not found' });
+    }
+
+    const previousStatus = listing.status;
+    const nowIso = new Date().toISOString();
+
+    listing.previous_status = previousStatus !== 'deleted' ? previousStatus : (listing.previous_status || 'active');
+    listing.status = 'deleted';
+    listing.is_deleted = true;
+    listing.featured = false; // Automatically unfeature deleted listing
+    listing.deleted_at = nowIso;
+    listing.deleted_by = adminUser.id;
+    listing.deletion_reason = reason;
+    listing.updated_at = nowIso;
+    await listing.save();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'listing',
+      entity_id: listing_id,
+      action: 'POST_DELETED',
+      previous_state: { status: previousStatus, is_deleted: false },
+      new_state: { status: 'deleted', is_deleted: true, deleted_at: nowIso, deleted_by: adminUser.id, previous_status: listing.previous_status },
+      reason,
+      req
+    });
+
+    const enriched = await enrichListing(listing.toJSON ? listing.toJSON() : listing);
+    return res.status(200).json({ success: true, message: 'Listing soft-deleted by administrator', listing: enriched });
+  } catch (error) {
+    console.error('Admin delete listing error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/listings/:listing_id/restore
+const restoreListing = async (req, res) => {
+  try {
+    const { listing_id } = req.params;
+    const adminUser = req.user;
+
+    const listing = await Listing.findOne({ id: listing_id });
+    if (!listing) {
+      return res.status(404).json({ detail: 'Listing not found' });
+    }
+
+    const prev = { status: listing.status, is_deleted: listing.is_deleted, previous_status: listing.previous_status };
+
+    // Determine correct previous status:
+    // If listing was sold before deletion (or has sold_at / previous_status === 'sold'), restore to 'sold'.
+    // If previous_status was 'archived', restore to 'archived'.
+    // If previous_status was 'expired', restore to 'expired'.
+    // Otherwise restore to 'active'.
+    let restoredStatus = 'active';
+    if (listing.previous_status && ['sold', 'expired', 'archived'].includes(listing.previous_status)) {
+      restoredStatus = listing.previous_status;
+    } else if (listing.sold_at || listing.sold_to_user_id) {
+      restoredStatus = 'sold';
+    }
+
+    const nowIso = new Date().toISOString();
+    listing.status = restoredStatus;
+    listing.is_deleted = false;
+    listing.featured = false; // Do not automatically re-feature upon restoration
+    listing.deleted_at = null;
+    listing.deleted_by = null;
+    listing.deletion_reason = null;
+    listing.updated_at = nowIso;
+    await listing.save();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'listing',
+      entity_id: listing_id,
+      action: 'POST_RESTORED',
+      previous_state: prev,
+      new_state: { status: restoredStatus, is_deleted: false },
+      reason: req.body?.reason || 'Restored by administrator',
+      req
+    });
+
+    const enriched = await enrichListing(listing.toJSON ? listing.toJSON() : listing);
+    return res.status(200).json({ success: true, listing: enriched });
+  } catch (error) {
+    console.error('Admin restore listing error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/listings/:listing_id/archive
+const archiveListing = async (req, res) => {
+  try {
+    const { listing_id } = req.params;
+    const adminUser = req.user;
+
+    const listing = await Listing.findOne({ id: listing_id });
+    if (!listing) {
+      return res.status(404).json({ detail: 'Listing not found' });
+    }
+
+    const prev = { status: listing.status };
+    listing.status = 'archived';
+    listing.updated_at = new Date().toISOString();
+    await listing.save();
+
+    await logAuditEvent({
+      admin_id: adminUser.id,
+      entity_type: 'listing',
+      entity_id: listing_id,
+      action: 'POST_ARCHIVED',
+      previous_state: prev,
+      new_state: { status: 'archived' },
+      reason: req.body?.reason || 'Archived by administrator',
+      req
+    });
+
+    const enriched = await enrichListing(listing.toJSON ? listing.toJSON() : listing);
+    return res.status(200).json({ success: true, listing: enriched });
+  } catch (error) {
+    console.error('Admin archive listing error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/audit-logs
+const getAuditLogs = async (req, res) => {
+  try {
+    const { entity_type, action, search, limit = 100, skip = 0 } = req.query;
+    const query = {};
+
+    if (entity_type && entity_type !== 'all') {
+      query.entity_type = entity_type;
+    }
+    if (action && action !== 'all') {
+      query.action = action;
+    }
+    if (search && search.trim()) {
+      const q = search.trim();
+      query.$or = [
+        { action: { $regex: q, $options: 'i' } },
+        { user_email: { $regex: q, $options: 'i' } },
+        { admin_email: { $regex: q, $options: 'i' } },
+        { entity_id: { $regex: q, $options: 'i' } },
+        { reason: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const [total, logs] = await Promise.all([
+      AuditLog.countDocuments(query),
+      AuditLog.find(query)
+        .sort({ created_at: -1 })
+        .skip(Number(skip))
+        .limit(Number(limit))
+        .lean()
+    ]);
+
+    return res.status(200).json({
+      total,
+      logs: logs.map((l) => {
+        delete l._id;
+        delete l.__v;
+        return l;
+      })
+    });
+  } catch (error) {
+    console.error('Admin get audit logs error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
 module.exports = {
   getUsers,
   updateUser,
   getListings,
   updateListing,
+  deleteListingAdmin,
+  restoreListing,
+  archiveListing,
   getPayments,
   getStats,
   banUser,
@@ -952,5 +1605,17 @@ module.exports = {
   getConversationMessages,
   replyToConversation,
   removeReportedListing,
-  exportData
+  exportData,
+  getModerationRecords,
+  reviewModerationRecord,
+  getModerationStats,
+  getModerationTerms,
+  createModerationTerm,
+  updateModerationTerm,
+  deleteModerationTerm,
+  toggleModerationTerm,
+  importModerationTerms,
+  exportModerationTerms,
+  getAuditLogs
 };
+

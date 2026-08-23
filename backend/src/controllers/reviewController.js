@@ -3,6 +3,7 @@ const Review = require('../models/Review');
 const Listing = require('../models/Listing');
 const User = require('../models/User');
 const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
+const { moderateText } = require('../moderation/moderationService');
 
 // POST /api/reviews
 const createReview = async (req, res) => {
@@ -19,6 +20,10 @@ const createReview = async (req, res) => {
       const commentCheck = validateFieldLength(comment, FIELD_LIMITS.REVIEW_COMMENT, false, 'Review comment');
       if (!commentCheck.valid) {
         return res.status(400).json({ detail: commentCheck.error });
+      }
+      const commentMod = await moderateText(comment, { type: 'review', userId: user.id });
+      if (commentMod.isProhibited) {
+        return res.status(400).json({ detail: 'Review contains prohibited or offensive language.' });
       }
     }
 

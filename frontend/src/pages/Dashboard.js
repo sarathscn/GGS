@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { generateInvoicePdf } from '../lib/invoicePdf';
 import { useAuth } from '../context/AuthContext';
 import api from '../lib/api';
 import { getDistricts, getTaluks, getAreas, formatLocation } from '../lib/keralaLocations';
@@ -34,6 +33,8 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import ProductCard from '../components/ProductCard';
+import Avatar from '../components/Avatar';
+import ProfilePictureModal from '../components/ProfilePictureModal';
 import { toast } from 'sonner';
 import {
   User,
@@ -59,7 +60,8 @@ import {
   Sparkles,
   RefreshCw,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  Receipt
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -77,6 +79,8 @@ export default function Dashboard() {
   const [wishlist, setWishlist] = useState([]);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [markingSoldId, setMarkingSoldId] = useState(null);
+  const [listingSubTab, setListingSubTab] = useState('active'); // 'active', 'sold', 'all'
   const fileInputRef = useRef(null);
 
   // Synchronize tab with searchParams on route changes
@@ -139,7 +143,8 @@ export default function Dashboard() {
   const [kycDocFile, setKycDocFile] = useState(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
 
-  // Avatar upload
+  // Avatar modal state
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
 
   useEffect(() => {
@@ -194,74 +199,11 @@ export default function Dashboard() {
     try {
       const response = await api.get(`/payments/${paymentId}/invoice`);
       const invoice = response.data;
-      
-      const doc = new jsPDF();
-      
-      // Add Letterhead
-      doc.setFontSize(22);
-      doc.setTextColor(139, 92, 246); // Violet-500
-      doc.setFont("helvetica", "bold");
-      doc.text("GAME GEAR SWAP", 105, 20, { align: "center" });
-      
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.setFont("helvetica", "normal");
-      doc.text("Kerala's Trusted Gaming Marketplace", 105, 26, { align: "center" });
-      doc.text(invoice.company_address || "Kerala, India", 105, 32, { align: "center" });
-      doc.text(`Email: ${invoice.company_email} | GSTIN: ${invoice.company_gstin}`, 105, 38, { align: "center" });
-      
-      // Divider
-      doc.setDrawColor(200);
-      doc.line(14, 45, 196, 45);
-      
-      // Invoice Details
-      doc.setFontSize(16);
-      doc.setTextColor(0);
-      doc.setFont("helvetica", "bold");
-      doc.text("TAX INVOICE", 14, 55);
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Invoice No: ${invoice.invoice_number}`, 14, 65);
-      doc.text(`Date: ${new Date(invoice.invoice_date).toLocaleDateString('en-IN')}`, 14, 71);
-      doc.text(`Transaction ID: ${invoice.transaction_id}`, 14, 77);
-      
-      // Billed To
-      const billedToY = 65;
-      doc.setFont("helvetica", "bold");
-      doc.text("BILLED TO:", 120, billedToY);
-      doc.setFont("helvetica", "normal");
-      doc.text(invoice.user_name || 'N/A', 120, billedToY + 6);
-      if (invoice.user_email) doc.text(invoice.user_email, 120, billedToY + 12);
-      if (invoice.user_phone) doc.text(invoice.user_phone, 120, billedToY + 18);
-      
-      // Table
-      doc.autoTable({
-        startY: 90,
-        head: [['Description', 'Amount']],
-        body: [
-          [`Ad Title: ${invoice.ad_title}\nAd ID: ${invoice.ad_id}`, `Rs. ${invoice.base_amount}`],
-          [`GST (${invoice.gst_rate}%)`, `Rs. ${invoice.gst_amount}`],
-        ],
-        foot: [['Total Amount', `Rs. ${invoice.total_amount}`]],
-        theme: 'striped',
-        headStyles: { fillColor: [139, 92, 246] },
-        footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0] }
-      });
-      
-      const finalY = doc.lastAutoTable.finalY || 130;
-      doc.setFont("helvetica", "normal");
-      doc.text(`Payment Method: ${invoice.payment_method}`, 14, finalY + 10);
-      doc.text(`Status: ${invoice.payment_status}`, 14, finalY + 16);
-      
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`© ${invoice.copyright}`, 105, 280, { align: "center" });
-
-      doc.save(`Invoice_${invoice.invoice_number}.pdf`);
+      generateInvoicePdf(invoice);
       toast.success('Invoice downloaded successfully');
     } catch (error) {
-      toast.error('Failed to download invoice');
+      console.error('Failed to download invoice:', error);
+      toast.error(error.response?.data?.detail || 'Failed to download invoice');
     }
   };
 
@@ -492,6 +434,7 @@ export default function Dashboard() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('type', 'avatar');
       const uploadRes = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -541,6 +484,7 @@ export default function Dashboard() {
     try {
       const formData = new FormData();
       formData.append('file', kycDocFile);
+      formData.append('type', 'kyc');
       const uploadRes = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -580,14 +524,20 @@ export default function Dashboard() {
   };
 
   const handleMarkAsSold = async (listingId) => {
+    if (markingSoldId) return;
+    setMarkingSoldId(listingId);
     try {
-      await api.post(`/listings/${listingId}/mark-sold`);
+      const res = await api.post(`/listings/${listingId}/mark-sold`);
+      const updatedListing = res.data?.listing || res.data;
       setMyListings(prev => prev.map(l => 
-        l.id === listingId ? { ...l, status: 'sold' } : l
+        l.id === listingId ? { ...l, ...(updatedListing || {}), status: 'sold', featured: false } : l
       ));
       toast.success('Listing marked as sold!');
     } catch (error) {
-      toast.error('Failed to update listing');
+      const errorMsg = error.response?.data?.detail || 'Failed to update listing';
+      toast.error(errorMsg);
+    } finally {
+      setMarkingSoldId(null);
     }
   };
 
@@ -663,46 +613,108 @@ export default function Dashboard() {
               <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
             </div>
           ) : myListings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {myListings.map((listing) => (
-                <div key={listing.id} className="relative group">
-                  <ProductCard product={listing} />
-                  <div className="mt-2 flex items-center justify-between gap-2 p-2 bg-card border border-border rounded-lg">
-                    <Badge className={statusColors[listing.status] || 'bg-zinc-500/10 text-zinc-500'}>
-                      {listing.status?.replace('_', ' ').toUpperCase()}
-                    </Badge>
-                    <div className="flex items-center gap-1">
-                      {listing.status !== 'sold' && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleMarkAsSold(listing.id)}
-                          className="h-8 px-2 text-xs hover:bg-emerald-500/10 hover:text-emerald-500"
-                          title="Mark as Sold"
-                          data-testid={`mark-sold-${listing.id}`}
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                          Sold
-                        </Button>
-                      )}
-                      <Link to={`/edit/${listing.id}`}>
-                        <Button size="icon" variant="ghost" className="h-8 w-8" data-testid={`edit-listing-${listing.id}`}>
-                          <Edit className="w-3.5 h-3.5" />
-                        </Button>
-                      </Link>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeleteListing(listing.id)}
-                        data-testid={`delete-listing-${listing.id}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
+            <div className="space-y-6">
+              {/* Sub-tabs for Active vs Sold Listings */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={listingSubTab === 'active' ? 'default' : 'outline'}
+                    onClick={() => setListingSubTab('active')}
+                    className={listingSubTab === 'active' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+                    data-testid="subtab-active-listings"
+                  >
+                    Active Listings ({myListings.filter(l => l.status !== 'sold' && l.status !== 'completed' && l.status !== 'deleted').length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={listingSubTab === 'sold' ? 'default' : 'outline'}
+                    onClick={() => setListingSubTab('sold')}
+                    className={listingSubTab === 'sold' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+                    data-testid="subtab-sold-listings"
+                  >
+                    Sold / Sales History ({myListings.filter(l => l.status === 'sold' || l.status === 'completed').length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={listingSubTab === 'all' ? 'default' : 'outline'}
+                    onClick={() => setListingSubTab('all')}
+                    className={listingSubTab === 'all' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+                    data-testid="subtab-all-listings"
+                  >
+                    All ({myListings.length})
+                  </Button>
                 </div>
-              ))}
+              </div>
+
+              {/* Listings Grid */}
+              {myListings.filter(l => {
+                if (listingSubTab === 'active') return l.status !== 'sold' && l.status !== 'completed' && l.status !== 'deleted';
+                if (listingSubTab === 'sold') return l.status === 'sold' || l.status === 'completed';
+                return true;
+              }).length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {myListings
+                    .filter(l => {
+                      if (listingSubTab === 'active') return l.status !== 'sold' && l.status !== 'completed' && l.status !== 'deleted';
+                      if (listingSubTab === 'sold') return l.status === 'sold' || l.status === 'completed';
+                      return true;
+                    })
+                    .map((listing) => (
+                      <div key={listing.id} className="relative group">
+                        <ProductCard product={listing} />
+                        <div className="mt-2 flex items-center justify-between gap-2 p-2 bg-card border border-border rounded-lg">
+                          <Badge className={statusColors[listing.status] || 'bg-zinc-500/10 text-zinc-500'}>
+                            {listing.status?.replace('_', ' ').toUpperCase()}
+                          </Badge>
+                          <div className="flex items-center gap-1">
+                            {listing.status !== 'sold' && listing.status !== 'completed' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleMarkAsSold(listing.id)}
+                                disabled={markingSoldId === listing.id}
+                                className="h-8 px-2 text-xs hover:bg-emerald-500/10 hover:text-emerald-500"
+                                title="Mark as Sold"
+                                data-testid={`mark-sold-${listing.id}`}
+                              >
+                                {markingSoldId === listing.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-500" />
+                                ) : (
+                                  <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                )}
+                                {markingSoldId === listing.id ? 'Saving...' : 'Mark Sold'}
+                              </Button>
+                            )}
+                            {listing.status !== 'sold' && listing.status !== 'completed' && (
+                              <Link to={`/edit/${listing.id}`}>
+                                <Button size="icon" variant="ghost" className="h-8 w-8" data-testid={`edit-listing-${listing.id}`}>
+                                  <Edit className="w-3.5 h-3.5" />
+                                </Button>
+                              </Link>
+                            )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteListing(listing.id)}
+                              data-testid={`delete-listing-${listing.id}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 bg-card rounded-xl border border-border">
+                  <Package className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-muted-foreground font-medium">
+                    {listingSubTab === 'sold' ? 'No sold listings yet.' : 'No active listings found in this tab.'}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-16 bg-card rounded-xl border border-border">
@@ -745,57 +757,71 @@ export default function Dashboard() {
           )}
         </TabsContent>
 
-        {/* Payments Tab */}
+        {/* Payments & Invoices Tab */}
         <TabsContent value="payments">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
             </div>
           ) : payments.length > 0 ? (
-            <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-muted/50 border-b border-border">
+                  <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
                     <tr>
-                      <th className="text-left py-3 px-4 font-medium">Transaction ID</th>
-                      <th className="text-left py-3 px-4 font-medium">Description</th>
-                      <th className="text-left py-3 px-4 font-medium">Amount</th>
-                      <th className="text-left py-3 px-4 font-medium">Status</th>
-                      <th className="text-left py-3 px-4 font-medium">Date</th>
-                      <th className="text-right py-3 px-4 font-medium">Action</th>
+                      <th className="text-left py-3 px-4 font-semibold">Invoice / Txn ID</th>
+                      <th className="text-left py-3 px-4 font-semibold">Description</th>
+                      <th className="text-left py-3 px-4 font-semibold">Amount (INR)</th>
+                      <th className="text-left py-3 px-4 font-semibold">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold">Date</th>
+                      <th className="text-right py-3 px-4 font-semibold">Receipt / Tax Invoice</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {payments.map((payment) => (
                       <tr key={payment.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
-                          {payment.transaction_id || payment.id?.slice(0, 8)}
+                        <td className="py-3 px-4">
+                          <p className="font-mono font-bold text-xs text-violet-400">
+                            {payment.invoice_number || `GGS-INV-${payment.id?.slice(0, 8).toUpperCase()}`}
+                          </p>
+                          <p className="font-mono text-[11px] text-muted-foreground">
+                            {payment.transaction_id || payment.id?.slice(0, 12)}
+                          </p>
                         </td>
                         <td className="py-3 px-4">
-                          <p className="font-medium">{payment.ad_title || 'Listing Fee'}</p>
-                          <p className="text-xs text-muted-foreground">{payment.payment_method || 'Razorpay'}</p>
-                        </td>
-                        <td className="py-3 px-4 font-bold text-violet-500">
-                          {formatPrice(payment.amount)}
+                          <p className="font-medium text-xs text-foreground">{payment.listing_title || payment.ad_title || 'Listing Service Fee'}</p>
+                          <p className="text-[11px] text-muted-foreground">{payment.payment_method ? payment.payment_method.toUpperCase() : 'Online UPI'}</p>
                         </td>
                         <td className="py-3 px-4">
-                          <Badge className={statusColors[payment.status] || 'bg-zinc-500/10 text-zinc-500'}>
+                          <span className="font-mono font-bold text-emerald-500">₹{Number(payment.amount).toFixed(2)}</span>
+                          <span className="block text-[10px] text-muted-foreground">(Base ₹{payment.base_amount || '8.47'} + 18% GST)</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Badge className={
+                            payment.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
+                            'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                          }>
                             {payment.status?.toUpperCase()}
                           </Badge>
                         </td>
-                        <td className="py-3 px-4 text-muted-foreground text-xs">
+                        <td className="py-3 px-4 text-muted-foreground text-xs whitespace-nowrap">
                           {formatDate(payment.created_at)}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => downloadInvoice(payment.id)}
-                            data-testid={`download-invoice-${payment.id}`}
-                          >
-                            <CreditCard className="w-4 h-4 mr-1" />
-                            Invoice
-                          </Button>
+                          {payment.status === 'completed' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs font-semibold"
+                              onClick={() => downloadInvoice(payment.id)}
+                              data-testid={`download-invoice-${payment.id}`}
+                            >
+                              <Receipt className="w-3.5 h-3.5 mr-1 text-violet-500" />
+                              Download Invoice
+                            </Button>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground italic">N/A (Pending)</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -807,7 +833,7 @@ export default function Dashboard() {
             <div className="text-center py-16 bg-card rounded-xl border border-border">
               <CreditCard className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
               <h3 className="font-bold text-lg mb-2">No payment history</h3>
-              <p className="text-muted-foreground">Payments will appear here after you post listings</p>
+              <p className="text-muted-foreground text-sm">Payments and tax invoices will appear here after you post listings</p>
             </div>
           )}
         </TabsContent>
@@ -822,36 +848,39 @@ export default function Dashboard() {
               {/* Profile Card */}
               <div className="bg-card border border-border rounded-xl p-4 sm:p-6 h-fit">
                 <div className="flex flex-col items-center text-center">
-                  <div className="relative mb-4">
-                    <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-violet-600/10 flex items-center justify-center overflow-hidden border-2 border-violet-500/50 shadow-lg shadow-violet-500/10">
-                      {user?.avatar ? (
-                        <img src={user.avatar} alt={user?.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <User className="w-12 h-12 text-violet-500" />
-                      )}
-                    </div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      ref={fileInputRef}
-                      onChange={handleAvatarChange}
-                      className="hidden"
+                  <div className="relative mb-3">
+                    <Avatar
+                      src={user?.avatar}
+                      name={user?.name}
+                      size="3xl"
+                      className="w-24 h-24 sm:w-28 sm:h-28 shadow-lg shadow-violet-500/10 border-2 border-violet-500/50"
+                      interactive={true}
+                      onClick={() => setIsAvatarModalOpen(true)}
+                      dataTestId="dashboard-profile-avatar"
                     />
                     <Button
+                      type="button"
                       size="icon"
                       className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-violet-600 hover:bg-violet-700 shadow-md transition-transform hover:scale-105"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={avatarLoading}
-                      title="Upload new photo"
+                      onClick={() => setIsAvatarModalOpen(true)}
+                      title="Update profile picture"
                       data-testid="profile-avatar-upload-btn"
+                      aria-label="Update profile picture"
                     >
-                      {avatarLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Camera className="w-4 h-4 text-white" />
-                      )}
+                      <Camera className="w-4 h-4 text-white" />
                     </Button>
                   </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsAvatarModalOpen(true)}
+                    className="text-xs font-semibold text-violet-500 hover:text-violet-400 hover:bg-violet-500/10 mb-2 h-7 px-2.5 rounded-lg"
+                    data-testid="change-profile-picture-btn"
+                  >
+                    Change Picture
+                  </Button>
 
                   <h3 className="font-bold text-lg text-foreground">{user?.name}</h3>
                   {user?.username && (
@@ -1735,6 +1764,16 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Profile Picture Editor & Cropper Modal */}
+      <ProfilePictureModal
+        isOpen={isAvatarModalOpen}
+        onClose={() => setIsAvatarModalOpen(false)}
+        currentUser={user}
+        onAvatarUpdated={(updatedUser) => {
+          if (refreshUser) refreshUser();
+        }}
+      />
     </div>
   );
 }

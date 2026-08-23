@@ -344,12 +344,6 @@ export default function Login() {
                       className="h-12 rounded-xl text-center font-mono text-xl tracking-[0.3em] font-bold"
                       data-testid="login-otp"
                     />
-
-                    {mockOtp && (
-                      <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-600 dark:text-amber-400 text-center font-medium">
-                        Mock OTP for testing: <strong className="font-mono">{mockOtp}</strong>
-                      </div>
-                    )}
                   </div>
 
                   <Button

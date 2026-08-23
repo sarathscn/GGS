@@ -38,9 +38,16 @@ app.use(
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Serve static uploaded files
+// Serve static uploaded files with long-term immutable caching
 const uploadsPath = path.join(__dirname, '../uploads');
-app.use('/api/uploads', express.static(uploadsPath));
+app.use('/api/uploads', express.static(uploadsPath, {
+  maxAge: '1y',
+  immutable: true,
+  etag: true,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  }
+}));
 
 // Mount main API router
 app.use('/api', apiRouter);

@@ -57,7 +57,7 @@ const completePaymentDirect = async (req, res) => {
         detail: `Listing fee mismatch: Expected ₹${pricing.baseFee.toFixed(2)}, received ₹${Number(submitted_fee).toFixed(2)}` 
       });
     }
-
+    const invoiceNumber = `GGS-INV-${uuidv4().replace(/-/g, '').substring(0, 8).toUpperCase()}`;
     const paymentDoc = new Payment({
       id: uuidv4(),
       user_id: user.id,
@@ -70,6 +70,8 @@ const completePaymentDirect = async (req, res) => {
       status: 'completed',
       payment_method,
       transaction_id: `TXN-${uuidv4().replace(/-/g, '').substring(0, 12).toUpperCase()}`,
+      invoice_number: invoiceNumber,
+      invoice_status: 'issued',
       policy_accepted: true,
       policy_version: REFUND_POLICY_VERSION,
       policy_accepted_at: new Date().toISOString(),
@@ -86,6 +88,7 @@ const completePaymentDirect = async (req, res) => {
       success: true,
       payment_id: paymentDoc.id,
       transaction_id: paymentDoc.transaction_id,
+      invoice_number: paymentDoc.invoice_number,
       base_amount: paymentDoc.base_amount,
       gst_percentage: paymentDoc.gst_percentage,
       gst_amount: paymentDoc.gst_amount,
@@ -187,6 +190,8 @@ const completePayment = async (req, res) => {
     payment.policy_version = REFUND_POLICY_VERSION;
     payment.policy_accepted_at = payment.policy_accepted_at || new Date().toISOString();
     payment.transaction_id = payment.transaction_id || `TXN-${uuidv4().replace(/-/g, '').substring(0, 12).toUpperCase()}`;
+    payment.invoice_number = payment.invoice_number || `GGS-INV-${uuidv4().replace(/-/g, '').substring(0, 8).toUpperCase()}`;
+    payment.invoice_status = 'issued';
     await payment.save();
 
     await Listing.updateOne(
@@ -260,10 +265,13 @@ const getPaymentInvoice = async (req, res) => {
 
     const payment = await Payment.findOne({ id: payment_id }).lean();
     if (!payment) {
-      return res.status(404).json({ detail: 'Payment not found' });
+      return res.status(404).json({ detail: 'Payment record not found' });
     }
     if (payment.user_id !== user.id && user.role !== 'admin') {
-      return res.status(403).json({ detail: 'Access denied' });
+      return res.status(403).json({ detail: 'Access denied: You are not authorized to access this invoice.' });
+    }
+    if (payment.status !== 'completed') {
+      return res.status(400).json({ detail: 'Invoices are only generated for completed payments.' });
     }
 
     const listing = await Listing.findOne({ id: payment.listing_id }).lean();

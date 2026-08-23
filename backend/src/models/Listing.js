@@ -49,11 +49,25 @@ const listingSchema = new mongoose.Schema(
     brand: { type: String, default: null },
     model: { type: String, default: null },
     seller_id: { type: String, required: true, index: true },
-    status: { type: String, default: 'pending_payment' }, // active, pending_payment, sold, rejected, deleted
+    status: { 
+      type: String, 
+      enum: ['active', 'pending_payment', 'sold', 'expired', 'archived', 'deleted', 'rejected'],
+      default: 'pending_payment',
+      index: true 
+    },
     payment_status: { type: String, default: 'pending' }, // pending, completed
     featured: { type: Boolean, default: false },
     views_count: { type: Number, default: 0 },
     moderation_note: { type: String, default: null },
+    is_deleted: { type: Boolean, default: false, index: true },
+    deleted_at: { type: String, default: null },
+    deleted_by: { type: String, default: null },
+    deletion_reason: { type: String, default: null },
+    previous_status: { type: String, default: null },
+    created_by_admin: { type: Boolean, default: false, index: true },
+    is_free_listing: { type: Boolean, default: false },
+    sold_at: { type: String, default: null },
+    sold_to_user_id: { type: String, default: null },
     updated_at: { type: String, default: null },
     created_at: { type: String, default: () => new Date().toISOString() }
   },
@@ -68,5 +82,8 @@ const listingSchema = new mongoose.Schema(
     }
   }
 );
+
+listingSchema.index({ seller_id: 1, status: 1, is_deleted: 1 });
+listingSchema.index({ category_id: 1, status: 1, is_deleted: 1 });
 
 module.exports = mongoose.model('Listing', listingSchema);

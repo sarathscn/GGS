@@ -6,7 +6,7 @@ function generateInvoiceData(payment, listing, payer) {
   const totalAmount = payment.amount !== undefined && payment.amount !== null ? Number(payment.amount) : 10.00;
 
   return {
-    invoice_number: `GGS-INV-${paymentId.replace(/-/g, '').substring(0, 8).toUpperCase()}`,
+    invoice_number: payment.invoice_number || `GGS-INV-${paymentId.replace(/-/g, '').substring(0, 8).toUpperCase()}`,
     invoice_date: payment.created_at || new Date().toISOString(),
     payment_id: paymentId,
     transaction_id: payment.transaction_id || `TXN-${paymentId.replace(/-/g, '').substring(0, 12).toUpperCase()}`,

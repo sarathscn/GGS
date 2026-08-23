@@ -4,6 +4,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import Logo from './Logo';
+import Avatar from './Avatar';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -167,13 +168,12 @@ export default function Navbar() {
             {/* User Profile Card (Authenticated - 100% Opaque, No Email) */}
             {user ? (
               <div className="flex items-center gap-3 p-3.5 rounded-xl bg-card border border-border shadow-sm">
-                <div className="w-11 h-11 rounded-full bg-violet-600/10 flex items-center justify-center overflow-hidden shrink-0 border border-violet-500/20">
-                  {user.avatar ? (
-                    <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <User className="w-5 h-5 text-violet-500" />
-                  )}
-                </div>
+                <Avatar
+                  src={user.avatar}
+                  name={user.name}
+                  size="lg"
+                  className="w-11 h-11 border border-violet-500/20"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <p className="text-sm font-bold text-foreground truncate">{user.name}</p>
@@ -479,7 +479,7 @@ export default function Navbar() {
                   </Link>
 
                   {/* 7. Profile Dropdown Menu (Desktop) */}
-                  <DropdownMenu>
+                  <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
@@ -487,13 +487,12 @@ export default function Navbar() {
                         data-testid="user-menu-trigger"
                         aria-label="User Profile Menu"
                       >
-                        <div className="w-7 h-7 rounded-full bg-violet-600/10 flex items-center justify-center overflow-hidden border border-violet-500/20 group-hover:scale-105 transition-transform">
-                          {user.avatar ? (
-                            <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <User className="w-3.5 h-3.5 text-violet-500" />
-                          )}
-                        </div>
+                        <Avatar
+                          src={user.avatar}
+                          name={user.name}
+                          size="sm"
+                          className="w-7 h-7 border border-violet-500/20 group-hover:scale-105 transition-transform"
+                        />
                         <span className="text-xs font-semibold text-foreground max-w-[100px] truncate hidden lg:inline-block">
                           {user.name.split(' ')[0]}
                         </span>
@@ -674,13 +673,12 @@ export default function Navbar() {
                 aria-label="Open Navigation Menu"
               >
                 {user ? (
-                  <div className="w-6 h-6 rounded-full bg-violet-600/20 border border-violet-500/30 flex items-center justify-center overflow-hidden">
-                    {user.avatar ? (
-                      <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <User className="w-3.5 h-3.5 text-violet-500" />
-                    )}
-                  </div>
+                  <Avatar
+                    src={user.avatar}
+                    name={user.name}
+                    size="xs"
+                    className="w-6 h-6 border border-violet-500/30"
+                  />
                 ) : (
                   <Menu className="w-5 h-5" />
                 )}

@@ -87,7 +87,7 @@ async function runAllTests() {
     'POST',
     'auth/login',
     200,
-    { email: 'admin@ggs.com', password: 'admin123' }
+    { email: 'admin@ggs.com', password: 'N166@2077#rSix' }
   );
   if (adminLogin.success && adminLogin.body.token) {
     tester.adminToken = adminLogin.body.token;

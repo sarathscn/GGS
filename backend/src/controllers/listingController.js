@@ -3,12 +3,15 @@ const Listing = require('../models/Listing');
 const Category = require('../models/Category');
 const User = require('../models/User');
 const Review = require('../models/Review');
+const Conversation = require('../models/Conversation');
 const generateSlug = require('../utils/generateSlug');
 const {
   isDigitalCategory,
   getItemTypeForCategory,
   getMaxSpecificationsForCategory
 } = require('../utils/categoryUtils');
+const { moderateText, detectOffensiveContent } = require('../moderation/moderationService');
+const { logAuditEvent } = require('../utils/auditLogger');
 
 const enrichListing = async (listing, categoryMap = null, userMap = null) => {
   const result = {
@@ -47,6 +50,16 @@ const enrichListing = async (listing, categoryMap = null, userMap = null) => {
     payment_status: listing.payment_status,
     featured: Boolean(listing.featured),
     views_count: Number(listing.views_count || 0),
+    is_deleted: Boolean(listing.is_deleted),
+    deleted_at: listing.deleted_at || null,
+    deleted_by: listing.deleted_by || null,
+    deletion_reason: listing.deletion_reason || null,
+    previous_status: listing.previous_status || null,
+    created_by_admin: Boolean(listing.created_by_admin),
+    is_free_listing: Boolean(listing.is_free_listing),
+    sold_at: listing.sold_at || null,
+    sold_to_user_id: listing.sold_to_user_id || null,
+    updated_at: listing.updated_at || null,
     created_at: listing.created_at
   };
 
@@ -99,7 +112,12 @@ const getListings = async (req, res) => {
       skip = 0
     } = req.query;
 
-    const query = { status: 'active', payment_status: 'completed' };
+    const query = { 
+      status: 'active', 
+      payment_status: 'completed', 
+      is_deleted: { $ne: true },
+      deleted_at: null
+    };
 
     if (category) {
       const cat = await Category.findOne({ slug: category }).lean();
@@ -115,10 +133,15 @@ const getListings = async (req, res) => {
       query.subcategory_id = subcategory;
     }
 
-    if (search) {
+    if (search && search.trim()) {
+      const detection = detectOffensiveContent(search.trim());
+      if (detection.hasMatches && (detection.severity === 'CRITICAL' || detection.severity === 'HIGH')) {
+        return res.status(400).json({ detail: 'Your search query contains prohibited terms violating community safety guidelines.' });
+      }
+
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { title: { $regex: search.trim(), $options: 'i' } },
+        { description: { $regex: search.trim(), $options: 'i' } }
       ];
     }
 
@@ -183,6 +206,8 @@ const getFeaturedListings = async (req, res) => {
     const rawListings = await Listing.find({
       status: 'active',
       payment_status: 'completed',
+      is_deleted: { $ne: true },
+      deleted_at: null,
       featured: true
     })
       .sort({ created_at: -1 })
@@ -202,7 +227,9 @@ const getLatestListings = async (req, res) => {
   try {
     const rawListings = await Listing.find({
       status: 'active',
-      payment_status: 'completed'
+      payment_status: 'completed',
+      is_deleted: { $ne: true },
+      deleted_at: null
     })
       .sort({ created_at: -1 })
       .limit(12)
@@ -248,8 +275,13 @@ const getListing = async (req, res) => {
       return res.status(404).json({ detail: 'Listing not found' });
     }
 
-    await Listing.updateOne({ id: listing.id }, { $inc: { views_count: 1 } });
-    listing.views_count = (listing.views_count || 0) + 1;
+    if (listing.is_deleted || listing.status === 'deleted') {
+      const currentUser = req.user;
+      const isAuthorized = currentUser && (currentUser.id === listing.seller_id || currentUser.role === 'admin');
+      if (!isAuthorized) {
+        return res.status(404).json({ detail: 'Listing not found or has been removed' });
+      }
+    }
 
     const enriched = await enrichListing(listing);
     return res.status(200).json(enriched);
@@ -259,18 +291,125 @@ const getListing = async (req, res) => {
   }
 };
 
+// In-memory view deduplication cache: key -> timestamp
+const viewCache = new Map();
+const VIEW_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes cooldown per viewer/listing
+
+// Periodically clean up expired view cache entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of viewCache.entries()) {
+    if (now - timestamp > VIEW_COOLDOWN_MS) {
+      viewCache.delete(key);
+    }
+  }
+}, 10 * 60 * 1000).unref();
+
+// POST /api/listings/:listing_id/view - Atomically record a legitimate product view
+const recordListingView = async (req, res) => {
+  try {
+    const { listing_id } = req.params;
+    if (!listing_id) {
+      return res.status(400).json({ detail: 'Listing identifier required' });
+    }
+
+    const decoded = decodeURIComponent(listing_id).trim();
+    let listing = await Listing.findOne({ id: decoded }).select('id slug seller_id views_count').lean();
+    
+    if (!listing) {
+      listing = await Listing.findOne({ slug: decoded }).select('id slug seller_id views_count').lean();
+    }
+    if (!listing) {
+      listing = await Listing.findOne({ slug: decoded.toLowerCase() }).select('id slug seller_id views_count').lean();
+    }
+    if (!listing) {
+      const escaped = decoded.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      listing = await Listing.findOne({ slug: { $regex: new RegExp(`^${escaped}$`, 'i') } }).select('id slug seller_id views_count').lean();
+    }
+
+    if (!listing) {
+      return res.status(404).json({ detail: 'Listing not found' });
+    }
+
+    // 1. If viewing user is the seller, do not count as a customer/buyer view
+    if (req.user && req.user.id === listing.seller_id) {
+      return res.status(200).json({
+        success: true,
+        listing_id: listing.id,
+        views_count: Number(listing.views_count || 0),
+        incremented: false,
+        reason: 'seller_view'
+      });
+    }
+
+    // 2. Identify viewer: authenticated user ID or guest IP / forward header
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'guest';
+    const clientIp = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : 'guest';
+    const viewerId = req.user ? `user:${req.user.id}` : `guest:${clientIp}`;
+    const cacheKey = `${viewerId}:${listing.id}`;
+
+    const now = Date.now();
+    const lastView = viewCache.get(cacheKey);
+
+    // 3. Deduplication: Check if viewed recently within cooldown window
+    if (lastView && (now - lastView < VIEW_COOLDOWN_MS)) {
+      return res.status(200).json({
+        success: true,
+        listing_id: listing.id,
+        views_count: Number(listing.views_count || 0),
+        incremented: false,
+        reason: 'cooldown'
+      });
+    }
+
+    // Update cache with current timestamp
+    viewCache.set(cacheKey, now);
+
+    // 4. Atomic database increment via $inc
+    const updated = await Listing.findOneAndUpdate(
+      { id: listing.id },
+      { $inc: { views_count: 1 } },
+      { new: true, projection: { id: 1, views_count: 1 } }
+    );
+
+    const finalCount = updated ? Number(updated.views_count) : Number(listing.views_count || 0) + 1;
+
+    return res.status(200).json({
+      success: true,
+      listing_id: listing.id,
+      views_count: finalCount,
+      incremented: true
+    });
+  } catch (error) {
+    console.error('Record listing view error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
 const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
 
 const validateListingPayload = async (data, isUpdate = false) => {
-  // 1. Text Field Length Validation
+  // 1. Text Field Length & Moderation Validation
   if (data.title !== undefined || !isUpdate) {
     const titleCheck = validateFieldLength(data.title, FIELD_LIMITS.TITLE, !isUpdate, 'Title');
     if (!titleCheck.valid) return titleCheck;
+    if (data.title) {
+      const titleMod = await moderateText(data.title, { type: 'post_title' });
+      if (titleMod.isProhibited) {
+        return { valid: false, error: 'Listing title contains prohibited or offensive language.' };
+      }
+    }
   }
 
   if (data.description !== undefined || !isUpdate) {
     const descCheck = validateFieldLength(data.description, FIELD_LIMITS.DESCRIPTION, !isUpdate, 'Description');
     if (!descCheck.valid) return descCheck;
+    if (data.description) {
+      const descMod = await moderateText(data.description, { type: 'post_description' });
+      if (descMod.isProhibited) {
+        return { valid: false, error: 'Listing description contains prohibited or offensive language.' };
+      }
+    }
   }
 
   if (data.brand !== undefined && data.brand !== null && data.brand !== '') {
@@ -442,14 +581,30 @@ const createListing = async (req, res) => {
       brand: data.brand || null,
       model: data.model || null,
       seller_id: user.id,
-      status: 'pending_payment',
-      payment_status: 'pending',
+      status: user.role === 'admin' ? 'active' : 'pending_payment',
+      payment_status: user.role === 'admin' ? 'completed' : 'pending',
+      created_by_admin: user.role === 'admin',
+      is_free_listing: user.role === 'admin',
       featured: false,
       views_count: 0,
       created_at: new Date().toISOString()
     });
 
     await newListing.save();
+
+    if (user.role === 'admin') {
+      await logAuditEvent({
+        admin_id: user.id,
+        entity_type: 'listing',
+        entity_id: newListing.id,
+        action: 'POST_CREATED',
+        previous_state: null,
+        new_state: { status: 'active', created_by_admin: true, is_free_listing: true },
+        reason: 'Admin created post directly (free)',
+        req
+      });
+    }
+
     const enriched = await enrichListing(newListing.toJSON());
     return res.status(200).json(enriched);
   } catch (error) {
@@ -478,59 +633,42 @@ const updateListing = async (req, res) => {
     if (effectiveCategoryId) {
       const cat = await Category.findOne({
         $or: [{ id: effectiveCategoryId }, { slug: effectiveCategoryId }]
-      });
+      }).lean();
       if (cat) {
-        expectedItemType = getItemTypeForCategory(cat);
+        expectedItemType = getItemTypeForCategory(cat.slug || cat.id);
       }
     }
 
-    const validationPayload = {
-      category_id: effectiveCategoryId,
-      item_type: req.body.item_type || expectedItemType,
-      subcategory_id: req.body.subcategory_id !== undefined ? req.body.subcategory_id : listing.subcategory_id,
-      specifications: req.body.specifications !== undefined ? req.body.specifications : listing.specifications,
-      price: req.body.price !== undefined ? req.body.price : listing.price,
-      price_type: req.body.price_type || listing.price_type,
-      latitude: req.body.latitude !== undefined ? req.body.latitude : listing.latitude,
-      longitude: req.body.longitude !== undefined ? req.body.longitude : listing.longitude
+    const effectiveData = {
+      ...listing.toObject(),
+      ...req.body,
+      item_type: expectedItemType
     };
 
-    const validation = await validateListingPayload(validationPayload, true);
+    const validation = await validateListingPayload(effectiveData, true);
     if (!validation.valid) {
       return res.status(400).json({ detail: validation.error });
     }
 
-    const allowed = [
-      'title', 'description', 'category_id', 'subcategory_id', 'price',
-      'price_type', 'condition', 'item_type', 'location', 'location_district',
-      'location_taluk', 'location_area', 'address_details', 'latitude', 'longitude',
-      'contact_phone', 'contact_method', 'hide_phone', 'images', 'specifications',
-      'brand', 'model', 'status'
-    ];
-
-    const updateData = {};
-    for (const key of allowed) {
-      if (req.body[key] !== undefined && req.body[key] !== null) {
-        if (key === 'price') {
-          updateData[key] = Number(req.body[key]);
-        } else if (key === 'latitude' || key === 'longitude') {
-          updateData[key] = req.body[key] === '' ? null : Number(req.body[key]);
-        } else {
-          updateData[key] = req.body[key];
-        }
-      }
+    const updateData = { ...req.body, updated_at: new Date().toISOString() };
+    if (updateData.title && updateData.title !== listing.title) {
+      updateData.slug = generateSlug(updateData.title);
     }
-
-    if (req.body.category_id && !req.body.item_type) {
+    if (updateData.category_id) {
       updateData.item_type = expectedItemType;
     }
 
-    if (Object.keys(updateData).length > 0) {
-      await Listing.updateOne({ id: listing_id }, { $set: updateData });
+    // Prevent non-admin user from spoofing admin or payment fields
+    if (user.role !== 'admin') {
+      delete updateData.created_by_admin;
+      delete updateData.is_free_listing;
+      delete updateData.payment_status;
+      delete updateData.is_deleted;
     }
 
-    const updated = await Listing.findOne({ id: listing_id }).lean();
-    const enriched = await enrichListing(updated);
+    await Listing.updateOne({ id: listing_id }, { $set: updateData });
+    const updatedListing = await Listing.findOne({ id: listing_id }).lean();
+    const enriched = await enrichListing(updatedListing);
     return res.status(200).json(enriched);
   } catch (error) {
     console.error('Update listing error:', error);
@@ -552,8 +690,31 @@ const deleteListing = async (req, res) => {
       return res.status(403).json({ detail: 'Not authorized' });
     }
 
-    await Listing.deleteOne({ id: listing_id });
-    return res.status(200).json({ message: 'Listing deleted' });
+    const previousStatus = listing.status;
+    const nowIso = new Date().toISOString();
+    listing.previous_status = previousStatus !== 'deleted' ? previousStatus : (listing.previous_status || 'active');
+    listing.status = 'deleted';
+    listing.is_deleted = true;
+    listing.featured = false; // Automatically unfeature deleted listing
+    listing.deleted_at = nowIso;
+    listing.deleted_by = user.id;
+    listing.deletion_reason = req.body?.reason || (user.role === 'admin' && listing.seller_id !== user.id ? 'admin_removed' : 'user_deleted');
+    listing.updated_at = nowIso;
+    await listing.save();
+
+    await logAuditEvent({
+      user_id: user.role !== 'admin' ? user.id : null,
+      admin_id: user.role === 'admin' ? user.id : null,
+      entity_type: 'listing',
+      entity_id: listing_id,
+      action: 'POST_DELETED',
+      previous_state: { status: previousStatus, is_deleted: false },
+      new_state: { status: 'deleted', is_deleted: true, deleted_at: nowIso, previous_status: listing.previous_status },
+      reason: listing.deletion_reason,
+      req
+    });
+
+    return res.status(200).json({ message: 'Listing deleted successfully' });
   } catch (error) {
     console.error('Delete listing error:', error);
     return res.status(500).json({ detail: error.message });
@@ -568,17 +729,55 @@ const markListingSold = async (req, res) => {
 
     const listing = await Listing.findOne({ id: listing_id });
     if (!listing) {
-      return res.status(404).json({ detail: 'Listing not found' });
+      return res.status(404).json({ detail: 'Listing could not be found.' });
     }
-    if (listing.seller_id !== user.id) {
-      return res.status(403).json({ detail: 'Not authorized' });
+    if (listing.seller_id !== user.id && user.role !== 'admin') {
+      return res.status(403).json({ detail: 'You are not authorized to update this listing.' });
+    }
+    if (listing.is_deleted || listing.status === 'deleted') {
+      return res.status(400).json({ detail: 'This listing cannot be marked as sold because it is deleted.' });
     }
 
-    await Listing.updateOne({ id: listing_id }, { $set: { status: 'sold' } });
-    return res.status(200).json({ message: 'Listing marked as sold' });
+    const previousStatus = listing.status;
+    const soldAt = new Date().toISOString();
+    const buyerId = req.body?.buyer_id || null;
+
+    listing.status = 'sold';
+    listing.featured = false; // Automatically remove from featured content
+    listing.sold_at = listing.sold_at || soldAt;
+    if (buyerId) listing.sold_to_user_id = buyerId;
+    listing.updated_at = soldAt;
+    await listing.save();
+
+    // Close all open conversations for this listing
+    await Conversation.updateMany(
+      { listing_id: listing.id, status: 'open' },
+      {
+        $set: {
+          status: 'closed_sold',
+          closed_at: soldAt,
+          closed_reason: 'listing_sold'
+        }
+      }
+    );
+
+    await logAuditEvent({
+      user_id: user.role !== 'admin' ? user.id : null,
+      admin_id: user.role === 'admin' ? user.id : null,
+      entity_type: 'listing',
+      entity_id: listing_id,
+      action: 'LISTING_SOLD',
+      previous_state: { status: previousStatus, featured: listing.featured },
+      new_state: { status: 'sold', featured: false, sold_at: soldAt, buyer_id: buyerId },
+      reason: 'Marked as sold by seller',
+      req
+    });
+
+    const enriched = await enrichListing(listing.toJSON ? listing.toJSON() : listing);
+    return res.status(200).json({ success: true, message: 'Listing marked as sold', listing: enriched });
   } catch (error) {
     console.error('Mark listing sold error:', error);
-    return res.status(500).json({ detail: error.message });
+    return res.status(500).json({ detail: 'Unable to update the listing right now. Please try again.' });
   }
 };
 
@@ -589,8 +788,21 @@ const getMyListings = async (req, res) => {
     const { status } = req.query;
 
     const query = { seller_id: user.id };
-    if (status) {
-      query.status = status;
+    if (status === 'active') {
+      query.status = 'active';
+      query.is_deleted = { $ne: true };
+    } else if (status === 'sold') {
+      query.status = 'sold';
+    } else if (status === 'archived') {
+      query.status = 'archived';
+    } else if (status === 'deleted' && user.role === 'admin') {
+      query.status = 'deleted';
+    } else if (status === 'all') {
+      // Returns everything except soft-deleted
+      query.is_deleted = { $ne: true };
+    } else {
+      // Default: active and sold are visible to the seller
+      query.is_deleted = { $ne: true };
     }
 
     const rawListings = await Listing.find(query).sort({ created_at: -1 }).limit(100).lean();
@@ -694,6 +906,7 @@ module.exports = {
   getFeaturedListings,
   getLatestListings,
   getListing,
+  recordListingView,
   createListing,
   updateListing,
   deleteListing,
