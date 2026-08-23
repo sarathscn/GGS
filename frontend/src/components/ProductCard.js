@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Heart, MapPin, Tag, CheckCircle, Eye } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import Avatar from './Avatar';
 import { useAuth } from '../context/AuthContext';
 import api from '../lib/api';
 import { toast } from 'sonner';
@@ -210,13 +211,12 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
             data-testid={`seller-link-${listing.seller_id}`}
             title={listing.seller_name}
           >
-            <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0 border border-border">
-              {listing.seller_avatar ? (
-                <img src={listing.seller_avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-xs font-medium">{listing.seller_name?.[0] || 'S'}</span>
-              )}
-            </div>
+            <Avatar
+              src={listing.seller_avatar}
+              name={listing.seller_name}
+              size="xs"
+              className="w-6 h-6 border border-border"
+            />
             <span className="text-xs truncate font-medium">{listing.seller_name}</span>
             {listing.seller_verified && (
               <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0" />

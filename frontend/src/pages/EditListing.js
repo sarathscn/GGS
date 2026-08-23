@@ -231,6 +231,7 @@ export default function EditListing() {
       for (const image of newImages) {
         const formData = new FormData();
         formData.append('file', image);
+        formData.append('type', 'post');
         const uploadRes = await api.post('/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });

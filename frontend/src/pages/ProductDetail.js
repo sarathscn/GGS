@@ -23,6 +23,7 @@ import {
 } from '../components/ui/select';
 import { toast } from 'sonner';
 import ProductCard from '../components/ProductCard';
+import Avatar from '../components/Avatar';
 import GoogleMapLocation from '../components/GoogleMapLocation';
 import { FIELD_LIMITS } from '../lib/fieldLimits';
 import {
@@ -77,6 +78,7 @@ export default function ProductDetail() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [markingSold, setMarkingSold] = useState(false);
   const [hasReviewed, setHasReviewed] = useState(false);
 
   const fetchReviews = async (listingId) => {
@@ -128,6 +130,9 @@ export default function ProductDetail() {
     }
   };
 
+  // Track recorded views in this session to prevent duplicate view calls on re-renders/StrictMode
+  const recordedViewsRef = React.useRef(new Set());
+
   useEffect(() => {
     let isMounted = true;
     const loadListing = async () => {
@@ -138,6 +143,22 @@ export default function ProductDetail() {
         if (isMounted) {
           if (response.data && response.data.id) {
             setListing(response.data);
+
+            // Record legitimate view once per listing per component session
+            const listingId = response.data.id;
+            if (!recordedViewsRef.current.has(listingId)) {
+              recordedViewsRef.current.add(listingId);
+              api.post(`/listings/${encodeURIComponent(listingId)}/view`)
+                .then((viewRes) => {
+                  if (isMounted && viewRes.data && typeof viewRes.data.views_count === 'number') {
+                    setListing((prev) => (prev && prev.id === listingId ? { ...prev, views_count: viewRes.data.views_count } : prev));
+                  }
+                })
+                .catch((err) => {
+                  console.warn('Could not record product view:', err);
+                });
+            }
+
             if (isAuthenticated) {
               checkWishlist(response.data.id);
             }
@@ -477,7 +498,7 @@ export default function ProductDetail() {
         </div>
         <div className="flex items-center gap-1.5">
           <Eye className="w-3.5 h-3.5" />
-          <span>{listing.views_count || 0} views</span>
+          <span>{typeof listing.views_count === 'number' ? listing.views_count : Number(listing.views_count || 0)} views</span>
         </div>
       </div>
     </div>
@@ -537,18 +558,28 @@ export default function ProductDetail() {
                 variant="outline" 
                 size="sm"
                 className="flex-1 text-xs h-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/20"
+                disabled={markingSold}
                 onClick={async () => {
+                  if (markingSold) return;
+                  setMarkingSold(true);
                   try {
                     await api.post(`/listings/${listing.id}/mark-sold`);
-                    toast.success('Listing marked as sold');
+                    toast.success('Listing marked as sold!');
                     fetchListing();
                   } catch (error) {
-                    toast.error('Failed to update listing');
+                    const errorMsg = error.response?.data?.detail || 'Failed to update listing';
+                    toast.error(errorMsg);
+                  } finally {
+                    setMarkingSold(false);
                   }
                 }}
               >
-                <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                Mark as Sold
+                {markingSold ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-500" />
+                ) : (
+                  <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                )}
+                {markingSold ? 'Saving...' : 'Mark as Sold'}
               </Button>
             )}
           </div>
@@ -668,13 +699,12 @@ export default function ProductDetail() {
     <div className="bg-card border border-border rounded-xl p-4 sm:p-5 space-y-3">
       <div className="flex items-center justify-between">
         <Link to={`/seller/${listing.seller_id}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0 flex-1">
-          <div className="w-10 h-10 rounded-full bg-violet-600/10 flex items-center justify-center overflow-hidden shrink-0 border border-violet-500/20">
-            {listing.seller_avatar ? (
-              <img src={listing.seller_avatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <User className="w-5 h-5 text-violet-500" />
-            )}
-          </div>
+          <Avatar
+            src={listing.seller_avatar}
+            name={listing.seller_name}
+            size="lg"
+            className="w-10 h-10 border border-violet-500/20"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <p className="font-bold text-sm text-foreground truncate">{listing.seller_name}</p>
@@ -769,13 +799,12 @@ export default function ProductDetail() {
           {reviews.map((review) => (
             <div key={review.id} className="bg-card border border-border rounded-xl p-4 sm:p-5">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-violet-600/10 flex items-center justify-center overflow-hidden flex-shrink-0 border border-violet-500/20">
-                  {review.reviewer_avatar ? (
-                    <img src={review.reviewer_avatar} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="font-bold text-violet-500">{review.reviewer_name?.[0]}</span>
-                  )}
-                </div>
+                <Avatar
+                  src={review.reviewer_avatar}
+                  name={review.reviewer_name}
+                  size="lg"
+                  className="w-10 h-10 border border-violet-500/20"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
                     <p className="font-medium text-foreground">{review.reviewer_name}</p>

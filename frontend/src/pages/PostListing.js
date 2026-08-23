@@ -247,6 +247,7 @@ export default function PostListing() {
       for (const image of images) {
         const formData = new FormData();
         formData.append('file', image);
+        formData.append('type', 'post');
         const uploadRes = await api.post('/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
@@ -292,6 +293,13 @@ export default function PostListing() {
       });
 
       setCreatedListing(listingRes.data);
+
+      if (user?.role === 'admin' || listingRes.data.status === 'active') {
+        toast.success('Admin listing published directly (No listing fee required).');
+        navigate(`/listing/${listingRes.data.id || listingRes.data.slug}`);
+        return;
+      }
+
       setShowPaymentModal(true);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create listing');
@@ -882,6 +890,11 @@ export default function PostListing() {
               <>
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                 Creating Ad...
+              </>
+            ) : user?.role === 'admin' ? (
+              <>
+                Publish Listing (Admin Free Post)
+                <Plus className="w-5 h-5 ml-2" />
               </>
             ) : (
               <>

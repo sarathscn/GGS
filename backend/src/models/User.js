@@ -21,6 +21,8 @@ const userSchema = new mongoose.Schema(
     verification_status: { type: String, default: null }, // pending, verified, rejected
     is_suspended: { type: Boolean, default: false },
     avatar: { type: String, default: null },
+    avatar_type: { type: String, enum: ['image', 'emoji', null], default: 'image' },
+    avatar_emoji: { type: String, default: null },
     location: { type: String, default: null },
     location_district: { type: String, default: null },
     location_taluk: { type: String, default: null },

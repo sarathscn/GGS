@@ -2,10 +2,15 @@ const { v4: uuidv4 } = require('uuid');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const FlaggedMessage = require('../models/FlaggedMessage');
+const ModerationRecord = require('../models/ModerationRecord');
 const User = require('../models/User');
 const filterMessage = require('../utils/filterMessage');
 const wsService = require('../services/websocketService');
 const { FIELD_LIMITS, validateFieldLength } = require('../utils/fieldLimits');
+
+// Marketplace chat hard limits (enforced server-side atomically)
+const MESSAGE_LIMIT = 100;
+const ATTACHMENT_LIMIT = 5;
 
 // GET /api/conversations/:conv_id/messages
 const getMessages = async (req, res) => {
@@ -52,6 +57,8 @@ const getMessages = async (req, res) => {
   }
 };
 
+const { moderateText, SEVERITY } = require('../moderation/moderationService');
+
 // POST /api/messages
 const sendMessage = async (req, res) => {
   try {
@@ -69,7 +76,7 @@ const sendMessage = async (req, res) => {
       }
     }
 
-    const conv = await Conversation.findOne({ id: conversation_id }).lean();
+    const conv = await Conversation.findOne({ id: conversation_id });
     if (!conv) {
       return res.status(404).json({ detail: 'Conversation not found' });
     }
@@ -77,7 +84,67 @@ const sendMessage = async (req, res) => {
       return res.status(403).json({ detail: 'Not authorized' });
     }
 
-    const { filteredText, isFlagged } = filterMessage(text || '');
+    // 1. Check if conversation is closed due to sold listing
+    if (conv.status === 'closed_sold') {
+      return res.status(400).json({ detail: 'Conversation closed — this listing has been sold.' });
+    }
+
+    // 2. Check 60-day expiration
+    const ageMs = Date.now() - new Date(conv.created_at).getTime();
+    if (conv.status === 'closed_expired' || ageMs > 60 * 24 * 60 * 60 * 1000) {
+      if (conv.status !== 'closed_expired') {
+        conv.status = 'closed_expired';
+        conv.closed_at = new Date().toISOString();
+        conv.closed_reason = 'expired_60_days';
+        await conv.save();
+      }
+      return res.status(400).json({ detail: 'Conversation closed — this conversation has expired after 60 days.' });
+    }
+
+    // 3. Enforce 100-message limit (atomic check against stored counter)
+    if ((conv.message_count || 0) >= MESSAGE_LIMIT) {
+      return res.status(400).json({
+        detail: `Message limit reached. Marketplace conversations are limited to ${MESSAGE_LIMIT} messages to keep negotiations focused.`,
+        code: 'MESSAGE_LIMIT_REACHED',
+        limit: MESSAGE_LIMIT
+      });
+    }
+
+    // 4. Enforce 5-attachment limit for image attachments (atomic check)
+    const isAttachment = !!(attachment_url && attachment_type);
+    if (isAttachment && (conv.attachment_count || 0) >= ATTACHMENT_LIMIT) {
+      return res.status(400).json({
+        detail: `Attachment limit reached. Marketplace conversations are limited to ${ATTACHMENT_LIMIT} image attachments.`,
+        code: 'ATTACHMENT_LIMIT_REACHED',
+        limit: ATTACHMENT_LIMIT
+      });
+    }
+
+    // 5. Multilingual Content Moderation
+    let filteredText = text || '';
+    let isFlagged = false;
+    let flaggedReason = null;
+
+    if (text && text.trim()) {
+      const modResult = await moderateText(text, {
+        type: 'message',
+        userId: user.id,
+        userName: user.name,
+        contentId: conversation_id
+      });
+
+      if (modResult.isProhibited) {
+        return res.status(400).json({
+          detail: 'Your message could not be sent because it violates community safety guidelines.'
+        });
+      }
+
+      if (modResult.flagged) {
+        isFlagged = true;
+        filteredText = modResult.cleanText;
+        flaggedReason = modResult.reason;
+      }
+    }
 
     const msgDoc = new Message({
       id: uuidv4(),
@@ -89,7 +156,7 @@ const sendMessage = async (req, res) => {
       attachment_type: attachment_type || null,
       is_read: false,
       is_flagged: isFlagged,
-      flagged_reason: isFlagged ? 'Contains blocked words' : null,
+      flagged_reason: flaggedReason,
       created_at: new Date().toISOString()
     });
 
@@ -109,20 +176,38 @@ const sendMessage = async (req, res) => {
       await flaggedDoc.save();
     }
 
+    // Atomically increment message_count (and attachment_count if applicable)
+    // This is done with $inc to prevent race conditions
+    const counterInc = { message_count: 1 };
+    if (isAttachment) {
+      counterInc.attachment_count = 1;
+    }
+
+    // Update conversation metadata & un-hide if hidden
     await Conversation.updateOne(
       { id: conversation_id },
       {
         $set: {
-          last_message: filteredText ? filteredText.substring(0, 50) : null,
+          last_message: filteredText ? filteredText.substring(0, 50) : (attachment_type ? `[${attachment_type}]` : 'Attachment'),
           last_message_at: msgDoc.created_at,
+          buyer_deleted_at: null,
+          seller_deleted_at: null,
           updated_at: msgDoc.created_at
-        }
+        },
+        $inc: counterInc
       }
     );
 
     const responseMsg = msgDoc.toJSON();
     responseMsg.sender_name = user.name;
     responseMsg.sender_avatar = user.avatar || null;
+
+    // Fetch updated counters for the response
+    const updatedConv = await Conversation.findOne({ id: conversation_id }).lean();
+    responseMsg.conversation_message_count = updatedConv ? (updatedConv.message_count || 0) : null;
+    responseMsg.conversation_attachment_count = updatedConv ? (updatedConv.attachment_count || 0) : null;
+    responseMsg.message_limit = MESSAGE_LIMIT;
+    responseMsg.attachment_limit = ATTACHMENT_LIMIT;
 
     wsService.broadcastToConversation(
       conversation_id,

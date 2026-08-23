@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { generateInvoicePdf } from '../lib/invoicePdf';
 import api from '../lib/api';
+import Avatar from '../components/Avatar';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -524,13 +524,12 @@ function UsersManagement() {
                   </td>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden">
-                        {user.avatar ? (
-                          <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-lg font-bold">{user.name?.charAt(0)}</span>
-                        )}
-                      </div>
+                      <Avatar
+                        src={user.avatar}
+                        name={user.name}
+                        size="md"
+                        className="w-10 h-10 border border-border"
+                      />
                       <div>
                         <p className="font-medium">{user.name}</p>
                         <p className="text-sm text-muted-foreground">{user.email || user.phone}</p>
@@ -659,13 +658,12 @@ function UsersManagement() {
             
             <TabsContent value="overview" className="p-4 space-y-6">
               <div className="flex flex-col md:flex-row gap-6">
-                <div className="w-32 h-32 rounded-2xl bg-muted flex items-center justify-center overflow-hidden border border-border">
-                  {userDetail?.avatar ? (
-                    <img src={userDetail.avatar} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-4xl font-bold">{userDetail?.name?.charAt(0)}</span>
-                  )}
-                </div>
+                <Avatar
+                  src={userDetail?.avatar}
+                  name={userDetail?.name}
+                  size="4xl"
+                  className="w-32 h-32 rounded-2xl border border-border text-5xl"
+                />
                 <div className="flex-1 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -822,6 +820,9 @@ function ListingsManagement() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [selectedListings, setSelectedListings] = useState([]);
+  const [deletingListing, setDeletingListing] = useState(null);
+  const [deletionReason, setDeletionReason] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     fetchListings();
@@ -845,7 +846,25 @@ function ListingsManagement() {
       fetchListings();
       toast.success('Listing updated');
     } catch (error) {
-      toast.error('Failed to update listing');
+      toast.error(error.response?.data?.detail || 'Failed to update listing');
+    }
+  };
+
+  const confirmDeleteListing = async () => {
+    if (!deletingListing) return;
+    setDeleteLoading(true);
+    try {
+      await api.delete(`/admin/listings/${deletingListing.id}`, {
+        data: { reason: deletionReason.trim() || 'Removed by administrator' }
+      });
+      toast.success('Listing soft-deleted successfully');
+      setDeletingListing(null);
+      setDeletionReason('');
+      fetchListings();
+    } catch (error) {
+      toast.error('Failed to delete listing');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -890,7 +909,29 @@ function ListingsManagement() {
     pending_payment: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
     rejected: 'bg-red-500/10 text-red-500 border-red-500/20',
     sold: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
+    archived: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
     deleted: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
+  };
+
+  const handleRestoreListing = async (listingId) => {
+    try {
+      const res = await api.post(`/admin/listings/${listingId}/restore`);
+      const restoredStatus = res.data?.listing?.status || 'active';
+      toast.success(`Listing restored to "${restoredStatus}" status`);
+      fetchListings();
+    } catch (err) {
+      toast.error('Failed to restore listing');
+    }
+  };
+
+  const handleArchiveListing = async (listingId) => {
+    try {
+      await api.post(`/admin/listings/${listingId}/archive`);
+      toast.success('Listing archived');
+      fetchListings();
+    } catch (err) {
+      toast.error('Failed to archive listing');
+    }
   };
 
   if (loading) {
@@ -906,8 +947,8 @@ function ListingsManagement() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
         <h2 className="text-xl font-bold">Listing Management</h2>
         <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Filter" />
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by Status" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Listings</SelectItem>
@@ -915,6 +956,8 @@ function ListingsManagement() {
             <SelectItem value="pending_payment">Pending Payment</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
             <SelectItem value="sold">Sold</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+            <SelectItem value="deleted">Deleted (Soft-Deleted)</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -944,7 +987,9 @@ function ListingsManagement() {
         {listings.map((listing) => (
           <div
             key={listing.id}
-            className="bg-card border border-border rounded-xl p-4 flex flex-col sm:flex-row gap-4"
+            className={`bg-card border rounded-xl p-4 flex flex-col sm:flex-row gap-4 ${
+              listing.is_deleted ? 'border-red-500/30 bg-red-500/5' : (listing.status === 'sold' ? 'border-cyan-500/30 bg-cyan-500/5' : 'border-border')
+            }`}
           >
             <div className="flex items-start gap-3">
               <Checkbox
@@ -961,24 +1006,75 @@ function ListingsManagement() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="font-bold truncate">{listing.title}</h3>
-                <Badge variant="outline" className={statusColors[listing.status]}>
-                  {listing.status?.replace('_', ' ')}
-                </Badge>
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <h3 className="font-bold truncate text-base">{listing.title}</h3>
+                  {listing.created_by_admin && (
+                    <Badge className="bg-violet-500/10 text-violet-400 border-violet-500/20 text-[11px] font-semibold">
+                      Admin Created (Free)
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {listing.is_deleted && (
+                    <Badge variant="destructive" className="bg-red-500 text-white">DELETED</Badge>
+                  )}
+                  <Badge variant="outline" className={statusColors[listing.status]}>
+                    {listing.status?.replace('_', ' ')}
+                  </Badge>
+                </div>
               </div>
               <p className="font-mono text-lg font-bold text-violet-500 mb-1">
                 {formatPrice(listing.price)}
               </p>
-              <p className="text-sm text-muted-foreground mb-3">
-                By {listing.seller_name} • {listing.category_name}
+              <p className="text-sm text-muted-foreground mb-2">
+                Author: <span className="font-medium text-foreground">{listing.seller_name || 'Seller'}</span> • {listing.category_name}
               </p>
-              <div className="flex flex-wrap gap-2">
+
+              {listing.is_deleted && (
+                <div className="text-xs bg-red-500/10 text-red-400 p-2.5 rounded-lg mb-2 border border-red-500/20">
+                  <p><strong>Soft-Deleted:</strong> {listing.deleted_at ? new Date(listing.deleted_at).toLocaleString() : 'N/A'}</p>
+                  <p><strong>Reason:</strong> {listing.deletion_reason || 'user_deleted'}</p>
+                  {listing.previous_status && (
+                    <p className="text-muted-foreground mt-0.5"><strong>Previous State:</strong> {listing.previous_status}</p>
+                  )}
+                </div>
+              )}
+
+              {listing.status === 'sold' && !listing.is_deleted && (
+                <div className="text-xs bg-cyan-500/10 text-cyan-400 p-2 rounded-md mb-2">
+                  <p><strong>Sold on:</strong> {listing.sold_at ? new Date(listing.sold_at).toLocaleString() : 'Completed'}</p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2 pt-1">
                 <Link to={`/listing/${listing.id}`} target="_blank">
                   <Button variant="outline" size="sm">
                     <Eye className="w-4 h-4 mr-1" />
                     View
                   </Button>
                 </Link>
+
+                {listing.is_deleted || listing.status === 'archived' ? (
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => handleRestoreListing(listing.id)}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Restore Post
+                  </Button>
+                ) : null}
+
+                {listing.status === 'active' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleArchiveListing(listing.id)}
+                  >
+                    Archive
+                  </Button>
+                )}
+
                 {(listing.status === 'pending' || listing.status === 'pending_payment') && (
                   <>
                     <Button
@@ -1008,20 +1104,19 @@ function ListingsManagement() {
                   <Star className={`w-4 h-4 mr-1 ${listing.featured ? 'fill-amber-500 text-amber-500' : ''}`} />
                   {listing.featured ? 'Unfeature' : 'Feature'}
                 </Button>
-                {listing.status !== 'deleted' ? (
+                {!listing.is_deleted && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="text-red-500"
-                    onClick={() => updateListing(listing.id, { status: 'deleted' })}
+                    onClick={() => {
+                      setDeletingListing(listing);
+                      setDeletionReason('');
+                    }}
                   >
                     <Trash2 className="w-4 h-4 mr-1" />
                     Delete
                   </Button>
-                ) : (
-                  <Badge variant="destructive" className="bg-red-500/10 text-red-500 border-red-500/20">
-                    Deleted Post
-                  </Badge>
                 )}
               </div>
             </div>
@@ -1034,6 +1129,63 @@ function ListingsManagement() {
           </div>
         )}
       </div>
+
+      {/* Delete Listing Confirmation Dialog */}
+      <Dialog open={!!deletingListing} onOpenChange={(open) => !open && setDeletingListing(null)}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-500">
+              <AlertTriangle className="w-5 h-5" />
+              Soft-Delete Listing
+            </DialogTitle>
+            <DialogDescription>
+              This listing will be removed from active public search and user dashboards, but complete records, images, payment records, messages, and audit history will be preserved for administration and restoration.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deletingListing && (
+            <div className="space-y-4 py-2">
+              <div className="p-3 bg-muted/40 rounded-xl space-y-1 text-xs">
+                <p className="font-bold text-foreground truncate">{deletingListing.title}</p>
+                <p className="text-muted-foreground">Listing ID: <code className="font-mono">{deletingListing.id}</code></p>
+                <p className="text-muted-foreground">Current Status: <strong className="text-foreground">{deletingListing.status}</strong></p>
+              </div>
+
+              <div>
+                <Label htmlFor="del-reason" className="text-xs font-semibold block mb-1.5">
+                  Reason for Deletion (Audit Trail)
+                </Label>
+                <Input
+                  id="del-reason"
+                  placeholder="e.g. Violation of marketplace policy, inappropriate content, scam report"
+                  value={deletionReason}
+                  onChange={(e) => setDeletionReason(e.target.value)}
+                  className="rounded-xl text-xs sm:text-sm"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeletingListing(null)}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={confirmDeleteListing}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Confirm Soft-Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1189,13 +1341,12 @@ function AllChatsManagement() {
                 <div className="flex items-center gap-3 mb-2">
                   {conv.participants_info?.map((p, idx) => (
                     <div key={p.id} className="flex items-center gap-1">
-                      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center overflow-hidden">
-                        {p.avatar ? (
-                          <img src={p.avatar} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-xs font-bold">{p.name?.charAt(0)}</span>
-                        )}
-                      </div>
+                      <Avatar
+                        src={p.avatar}
+                        name={p.name}
+                        size="xs"
+                        className="w-6 h-6 border border-border"
+                      />
                       <span className="text-sm font-semibold">{p.name}</span>
                       {idx < conv.participants_info.length - 1 && <span className="text-muted-foreground mx-1">↔</span>}
                     </div>
@@ -2355,27 +2506,34 @@ function SupportTicketsManagement() {
 
 
 
-// Payments Management with Invoice
+// Payments Management with Search, Filters & PDF Invoicing
 function PaymentsManagement() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [downloadingId, setDownloadingId] = useState(null);
 
   useEffect(() => {
     fetchPayments();
-  }, []);
+  }, [statusFilter]);
 
   const fetchPayments = async () => {
     try {
-      const response = await api.get('/admin/payments');
+      setLoading(true);
+      const params = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
+      const response = await api.get(`/admin/payments${params}`);
       setPayments(response.data);
     } catch (error) {
       console.error('Failed to fetch payments:', error);
+      toast.error('Failed to fetch payments');
     } finally {
       setLoading(false);
     }
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
@@ -2387,142 +2545,155 @@ function PaymentsManagement() {
 
   const downloadInvoice = async (paymentId) => {
     try {
+      setDownloadingId(paymentId);
       const response = await api.get(`/payments/${paymentId}/invoice`);
       const invoice = response.data;
-      
-      const doc = new jsPDF();
-      
-      // Add Letterhead
-      doc.setFontSize(22);
-      doc.setTextColor(139, 92, 246); // Violet-500
-      doc.setFont("helvetica", "bold");
-      doc.text("GAME GEAR SWAP", 105, 20, { align: "center" });
-      
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.setFont("helvetica", "normal");
-      doc.text("Kerala's Trusted Gaming Marketplace", 105, 26, { align: "center" });
-      doc.text(invoice.company_address || "Kerala, India", 105, 32, { align: "center" });
-      doc.text(`Email: ${invoice.company_email} | GSTIN: ${invoice.company_gstin}`, 105, 38, { align: "center" });
-      
-      // Divider
-      doc.setDrawColor(200);
-      doc.line(14, 45, 196, 45);
-      
-      // Invoice Details
-      doc.setFontSize(16);
-      doc.setTextColor(0);
-      doc.setFont("helvetica", "bold");
-      doc.text("TAX INVOICE", 14, 55);
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Invoice No: ${invoice.invoice_number}`, 14, 65);
-      doc.text(`Date: ${formatDate(invoice.invoice_date)}`, 14, 71);
-      doc.text(`Transaction ID: ${invoice.transaction_id}`, 14, 77);
-      
-      // Billed To
-      const billedToY = 65;
-      doc.setFont("helvetica", "bold");
-      doc.text("BILLED TO:", 120, billedToY);
-      doc.setFont("helvetica", "normal");
-      doc.text(invoice.user_name || 'N/A', 120, billedToY + 6);
-      if (invoice.user_email) doc.text(invoice.user_email, 120, billedToY + 12);
-      if (invoice.user_phone) doc.text(invoice.user_phone, 120, billedToY + 18);
-      
-      // Table
-      doc.autoTable({
-        startY: 90,
-        head: [['Description', 'Amount']],
-        body: [
-          [`Ad Title: ${invoice.ad_title}\nAd ID: ${invoice.ad_id}`, `Rs. ${invoice.base_amount}`],
-          [`GST (${invoice.gst_rate}%)`, `Rs. ${invoice.gst_amount}`],
-        ],
-        foot: [['Total Amount', `Rs. ${invoice.total_amount}`]],
-        theme: 'striped',
-        headStyles: { fillColor: [139, 92, 246] },
-        footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0] }
-      });
-      
-      const finalY = doc.lastAutoTable.finalY || 130;
-      doc.setFont("helvetica", "normal");
-      doc.text(`Payment Method: ${invoice.payment_method}`, 14, finalY + 10);
-      doc.text(`Status: ${invoice.payment_status}`, 14, finalY + 16);
-      
-      doc.setFontSize(8);
-      doc.setTextColor(150);
-      doc.text(`© ${invoice.copyright}`, 105, 280, { align: "center" });
-
-      doc.save(`Invoice_${invoice.invoice_number}.pdf`);
-      
-      toast.success('Invoice downloaded');
+      generateInvoicePdf(invoice);
+      toast.success('Invoice downloaded successfully');
     } catch (error) {
-      toast.error('Failed to download invoice');
+      console.error('Failed to download invoice:', error);
+      toast.error(error.response?.data?.detail || 'Failed to download invoice');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
-  if (loading) {
+  const filteredPayments = payments.filter((payment) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
-      </div>
+      (payment.id && payment.id.toLowerCase().includes(q)) ||
+      (payment.transaction_id && payment.transaction_id.toLowerCase().includes(q)) ||
+      (payment.invoice_number && payment.invoice_number.toLowerCase().includes(q)) ||
+      (payment.user_name && payment.user_name.toLowerCase().includes(q)) ||
+      (payment.user_email && payment.user_email.toLowerCase().includes(q)) ||
+      (payment.ad_title && payment.ad_title.toLowerCase().includes(q))
     );
-  }
+  });
 
   return (
-    <div data-testid="admin-payments">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold">Payments</h2>
+    <div data-testid="admin-payments" className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-foreground">Payments & Invoicing</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Authoritative listing service fees, tax invoice generation, and revenue records</p>
+        </div>
         <ExportButton type="payments" label="Export Payments" />
       </div>
-      
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left p-4 font-medium">Payment ID</th>
-                <th className="text-left p-4 font-medium">User</th>
-                <th className="text-left p-4 font-medium">Amount</th>
-                <th className="text-left p-4 font-medium">Status</th>
-                <th className="text-left p-4 font-medium">Date</th>
-                <th className="text-left p-4 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((payment) => (
-                <tr key={payment.id} className="border-t border-border">
-                  <td className="p-4 font-mono text-sm">{payment.id.slice(0, 8)}...</td>
-                  <td className="p-4 text-sm">{payment.user_id.slice(0, 8)}...</td>
-                  <td className="p-4 font-mono font-bold text-emerald-500">₹{payment.amount}</td>
-                  <td className="p-4">
-                    <Badge variant="outline" className={
-                      payment.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' :
-                      'bg-amber-500/10 text-amber-500'
-                    }>
-                      {payment.status}
-                    </Badge>
-                  </td>
-                  <td className="p-4 text-sm text-muted-foreground">{formatDate(payment.created_at)}</td>
-                  <td className="p-4">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => downloadInvoice(payment.id)}
-                    >
-                      <Receipt className="w-4 h-4 mr-1" />
-                      Invoice
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {/* Filter & Search Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="relative sm:col-span-2">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search invoice #, transaction ID, customer name or email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-10 rounded-xl text-xs sm:text-sm"
+          />
         </div>
-        {payments.length === 0 && (
-          <div className="text-center py-12">
-            <CreditCard className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No payments found</p>
+
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-10 rounded-xl text-xs">
+            <SelectValue placeholder="Payment Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Payment Statuses</SelectItem>
+            <SelectItem value="completed">Completed (Paid)</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="failed">Failed</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Payments Table */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="text-left p-3.5 font-semibold">Invoice / Txn ID</th>
+                  <th className="text-left p-3.5 font-semibold">Customer</th>
+                  <th className="text-left p-3.5 font-semibold">Listing / Service</th>
+                  <th className="text-left p-3.5 font-semibold">Amount (INR)</th>
+                  <th className="text-left p-3.5 font-semibold">Status</th>
+                  <th className="text-left p-3.5 font-semibold">Date</th>
+                  <th className="text-right p-3.5 font-semibold">Receipt / Tax Invoice</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filteredPayments.map((payment) => (
+                  <tr key={payment.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-3.5">
+                      <p className="font-mono font-bold text-xs text-violet-400">{payment.invoice_number || `GGS-INV-${payment.id.slice(0, 8).toUpperCase()}`}</p>
+                      <p className="font-mono text-[11px] text-muted-foreground">{payment.transaction_id || payment.id.slice(0, 12)}</p>
+                    </td>
+
+                    <td className="p-3.5">
+                      <p className="font-medium text-foreground text-xs">{payment.user_name || 'Customer'}</p>
+                      <p className="text-[11px] text-muted-foreground">{payment.user_email || `User: ${payment.user_id.slice(0, 8)}`}</p>
+                    </td>
+
+                    <td className="p-3.5 max-w-[200px]">
+                      <p className="font-medium text-xs text-foreground truncate">{payment.ad_title || 'Listing Service Fee'}</p>
+                      <p className="text-[11px] text-muted-foreground">{payment.payment_method ? payment.payment_method.toUpperCase() : 'UPI / Card'}</p>
+                    </td>
+
+                    <td className="p-3.5">
+                      <span className="font-mono font-bold text-emerald-500">₹{Number(payment.amount).toFixed(2)}</span>
+                      <span className="block text-[10px] text-muted-foreground">(Base ₹{payment.base_amount || '8.47'} + 18% GST)</span>
+                    </td>
+
+                    <td className="p-3.5">
+                      <Badge variant="outline" className={
+                        payment.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
+                        'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                      }>
+                        {payment.status?.toUpperCase()}
+                      </Badge>
+                    </td>
+
+                    <td className="p-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDate(payment.created_at)}
+                    </td>
+
+                    <td className="p-3.5 text-right">
+                      {payment.status === 'completed' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs font-semibold"
+                          onClick={() => downloadInvoice(payment.id)}
+                          disabled={downloadingId === payment.id}
+                        >
+                          {downloadingId === payment.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin mr-1 text-violet-500" />
+                          ) : (
+                            <Receipt className="w-3.5 h-3.5 mr-1 text-violet-500" />
+                          )}
+                          Invoice PDF
+                        </Button>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground italic">N/A (Pending)</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && filteredPayments.length === 0 && (
+          <div className="text-center py-16">
+            <CreditCard className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+            <h3 className="font-bold text-base text-foreground">No payments found</h3>
+            <p className="text-xs text-muted-foreground mt-1">There are no payment records matching your filter criteria.</p>
           </div>
         )}
       </div>
@@ -2616,6 +2787,7 @@ function CategoriesManagement() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('type', 'category');
       const uploadRes = await api.post('/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -3005,6 +3177,1235 @@ function PagesManagement() {
   );
 }
 
+// Moderation & Filter Management Component
+function ModerationManagement() {
+  const [records, setRecords] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('records'); // 'records' or 'dictionary'
+  
+  // Records Filters
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [adminNotes, setAdminNotes] = useState('');
+
+  // Dictionary Management State
+  const [terms, setTerms] = useState([]);
+  const [termsSummary, setTermsSummary] = useState(null);
+  const [termsLoading, setTermsLoading] = useState(false);
+  const [termSearch, setTermSearch] = useState('');
+  const [termLanguage, setTermLanguage] = useState('all');
+  const [termCategory, setTermCategory] = useState('all');
+  const [termSeverity, setTermSeverity] = useState('all');
+  const [termStatus, setTermStatus] = useState('all');
+  
+  // Modals for Dictionary CRUD
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [editingTerm, setEditingTerm] = useState(null);
+  const [termForm, setTermForm] = useState({
+    term: '',
+    language: 'english',
+    category: 'profanity',
+    severity: 'HIGH',
+    enabled: true,
+    variants: '',
+    transliterations: ''
+  });
+  const [importJsonText, setImportJsonText] = useState('');
+  const [savingTerm, setSavingTerm] = useState(false);
+
+  useEffect(() => {
+    fetchModerationRecords();
+  }, [statusFilter, severityFilter, typeFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'dictionary') {
+      fetchDictionaryTerms();
+    }
+  }, [activeTab, termSearch, termLanguage, termCategory, termSeverity, termStatus]);
+
+  const fetchModerationRecords = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.append('status', statusFilter);
+      if (severityFilter !== 'all') params.append('severity', severityFilter);
+      if (typeFilter !== 'all') params.append('content_type', typeFilter);
+
+      const [recordsRes, statsRes] = await Promise.all([
+        api.get(`/admin/moderation/records?${params.toString()}`),
+        api.get('/admin/moderation/stats')
+      ]);
+
+      setRecords(recordsRes.data);
+      setStats(statsRes.data);
+    } catch (error) {
+      console.error('Failed to fetch moderation data:', error);
+      toast.error('Failed to load moderation records');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDictionaryTerms = async () => {
+    setTermsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (termSearch) params.append('search', termSearch);
+      if (termLanguage !== 'all') params.append('language', termLanguage);
+      if (termCategory !== 'all') params.append('category', termCategory);
+      if (termSeverity !== 'all') params.append('severity', termSeverity);
+      if (termStatus !== 'all') params.append('enabled', termStatus === 'enabled');
+
+      const res = await api.get(`/admin/moderation/terms?${params.toString()}`);
+      setTerms(res.data.terms || []);
+      setTermsSummary(res.data.summary || null);
+    } catch (error) {
+      console.error('Failed to fetch dictionary terms:', error);
+      toast.error('Failed to load moderation terms');
+    } finally {
+      setTermsLoading(false);
+    }
+  };
+
+  const handleReviewAction = async (recordId, action) => {
+    setActionLoading(recordId);
+    try {
+      await api.put(`/admin/moderation/records/${recordId}/review`, {
+        action,
+        admin_notes: adminNotes
+      });
+      toast.success(`Moderation record marked as ${action}`);
+      if (selectedRecord && selectedRecord.id === recordId) {
+        setSelectedRecord(null);
+      }
+      fetchModerationRecords();
+    } catch (error) {
+      toast.error('Failed to update moderation record');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreateTerm = async () => {
+    if (!termForm.term || !termForm.term.trim()) {
+      toast.error('Term word is required');
+      return;
+    }
+    setSavingTerm(true);
+    try {
+      await api.post('/admin/moderation/terms', {
+        term: termForm.term.trim().toLowerCase(),
+        language: termForm.language,
+        category: termForm.category,
+        severity: termForm.severity,
+        enabled: termForm.enabled,
+        variants: termForm.variants ? termForm.variants.split(',').map(v => v.trim()).filter(Boolean) : [],
+        transliterations: termForm.transliterations ? termForm.transliterations.split(',').map(t => t.trim()).filter(Boolean) : []
+      });
+      toast.success('Moderation term added successfully');
+      setShowAddModal(false);
+      setTermForm({
+        term: '',
+        language: 'english',
+        category: 'profanity',
+        severity: 'HIGH',
+        enabled: true,
+        variants: '',
+        transliterations: ''
+      });
+      fetchDictionaryTerms();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add moderation term');
+    } finally {
+      setSavingTerm(false);
+    }
+  };
+
+  const handleUpdateTerm = async () => {
+    if (!editingTerm) return;
+    setSavingTerm(true);
+    try {
+      await api.put(`/admin/moderation/terms/${editingTerm.id}`, {
+        term: termForm.term.trim().toLowerCase(),
+        language: termForm.language,
+        category: termForm.category,
+        severity: termForm.severity,
+        enabled: termForm.enabled,
+        variants: termForm.variants ? termForm.variants.split(',').map(v => v.trim()).filter(Boolean) : [],
+        transliterations: termForm.transliterations ? termForm.transliterations.split(',').map(t => t.trim()).filter(Boolean) : []
+      });
+      toast.success('Moderation term updated');
+      setShowEditModal(false);
+      setEditingTerm(null);
+      fetchDictionaryTerms();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update term');
+    } finally {
+      setSavingTerm(false);
+    }
+  };
+
+  const handleToggleTerm = async (termId) => {
+    try {
+      const res = await api.patch(`/admin/moderation/terms/${termId}/toggle`);
+      toast.success(`Term ${res.data.term?.enabled ? 'enabled' : 'disabled'}`);
+      setTerms(prev => prev.map(t => t.id === termId ? { ...t, enabled: res.data.term?.enabled } : t));
+    } catch (error) {
+      toast.error('Failed to toggle term');
+    }
+  };
+
+  const handleDeleteTerm = async (termId, termName) => {
+    if (!window.confirm(`Are you sure you want to delete term "${termName}"?`)) return;
+    try {
+      await api.delete(`/admin/moderation/terms/${termId}`);
+      toast.success(`Deleted term "${termName}"`);
+      setTerms(prev => prev.filter(t => t.id !== termId));
+    } catch (error) {
+      toast.error('Failed to delete term');
+    }
+  };
+
+  const handleImportTerms = async () => {
+    if (!importJsonText || !importJsonText.trim()) {
+      toast.error('JSON content is required');
+      return;
+    }
+    setSavingTerm(true);
+    try {
+      let parsed;
+      try {
+        parsed = JSON.parse(importJsonText);
+      } catch (pErr) {
+        throw new Error('Invalid JSON format. Please provide an array of term objects.');
+      }
+      if (!Array.isArray(parsed)) {
+        throw new Error('Import data must be a JSON array of term objects.');
+      }
+      const res = await api.post('/admin/moderation/terms/import', { terms: parsed });
+      toast.success(`Imported ${res.data.count} moderation terms`);
+      setShowImportModal(false);
+      setImportJsonText('');
+      fetchDictionaryTerms();
+    } catch (error) {
+      toast.error(error.message || error.response?.data?.detail || 'Import failed');
+    } finally {
+      setSavingTerm(false);
+    }
+  };
+
+  const handleExportTerms = async () => {
+    try {
+      const res = await api.get('/admin/moderation/terms/export');
+      exportToExcel(res.data, 'moderation_terms_export');
+      toast.success('Terms exported successfully');
+    } catch (error) {
+      toast.error('Export failed');
+    }
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getSeverityBadge = (severity) => {
+    switch (severity) {
+      case 'CRITICAL':
+        return <Badge className="bg-red-500/20 text-red-500 border-red-500/30">CRITICAL</Badge>;
+      case 'HIGH':
+        return <Badge className="bg-orange-500/20 text-orange-500 border-orange-500/30">HIGH</Badge>;
+      case 'MEDIUM':
+        return <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30">MEDIUM</Badge>;
+      case 'LOW':
+        return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">LOW</Badge>;
+      default:
+        return <Badge variant="outline">{severity || 'UNKNOWN'}</Badge>;
+    }
+  };
+
+  const getStatusBadge = (status, actionTaken) => {
+    if (status === 'pending') {
+      return (
+        <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30">
+          {actionTaken === 'AUTO_BLOCKED' ? 'Auto-Blocked (Pending)' : 'Pending Review'}
+        </Badge>
+      );
+    }
+    if (status === 'approved') {
+      return <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30">Approved / Safe</Badge>;
+    }
+    if (status === 'rejected') {
+      return <Badge className="bg-red-500/15 text-red-500 border-red-500/30">Violation Confirmed</Badge>;
+    }
+    return <Badge variant="outline">{status}</Badge>;
+  };
+
+  const filteredRecords = records.filter(r => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (r.original_text && r.original_text.toLowerCase().includes(q)) ||
+      (r.user_name && r.user_name.toLowerCase().includes(q)) ||
+      (r.user_email && r.user_email.toLowerCase().includes(q)) ||
+      (r.content_type && r.content_type.toLowerCase().includes(q)) ||
+      (r.matched_terms && r.matched_terms.some(m => m.term && m.term.toLowerCase().includes(q)))
+    );
+  });
+
+  return (
+    <div className="space-y-6 w-full max-w-full overflow-hidden" data-testid="admin-moderation">
+      {/* Stats Header */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatsCard
+          title="Auto-Blocked Items"
+          value={stats?.auto_blocked || 0}
+          subtitle={`${stats?.pending || 0} pending admin review`}
+          icon={Ban}
+          color="bg-red-500"
+        />
+        <StatsCard
+          title="Total Mod Events"
+          value={stats?.total || 0}
+          subtitle={`${stats?.approved || 0} approved, ${stats?.rejected || 0} confirmed`}
+          icon={ShieldAlert}
+          color="bg-violet-600"
+        />
+        <StatsCard
+          title="Active Dictionary Terms"
+          value={termsSummary?.total || stats?.total_seed_terms || 154}
+          subtitle="English, Malayalam & Manglish"
+          icon={FileText}
+          color="bg-cyan-500"
+        />
+        <StatsCard
+          title="Dismissed / False Positives"
+          value={stats?.dismissed || 0}
+          subtitle="Reviewed by admin"
+          icon={Check}
+          color="bg-emerald-500"
+        />
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="flex flex-wrap items-center justify-between border-b border-border pb-4 gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            variant={activeTab === 'records' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setActiveTab('records')}
+            className={activeTab === 'records' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+          >
+            <ShieldAlert className="w-4 h-4 mr-2" />
+            Flagged & Blocked Records ({filteredRecords.length})
+          </Button>
+          <Button
+            variant={activeTab === 'dictionary' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setActiveTab('dictionary')}
+            className={activeTab === 'dictionary' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+          >
+            <FolderOpen className="w-4 h-4 mr-2" />
+            Multilingual Seed Dictionary ({termsSummary?.total || terms.length})
+          </Button>
+        </div>
+
+        {activeTab === 'dictionary' && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportTerms}
+              className="text-xs"
+            >
+              <Download className="w-3.5 h-3.5 mr-1" /> Export CSV/JSON
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowImportModal(true)}
+              className="text-xs"
+            >
+              <Upload className="w-3.5 h-3.5 mr-1" /> Import JSON
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setTermForm({
+                  term: '',
+                  language: 'english',
+                  category: 'profanity',
+                  severity: 'HIGH',
+                  enabled: true,
+                  variants: '',
+                  transliterations: ''
+                });
+                setShowAddModal(true);
+              }}
+              className="bg-violet-600 hover:bg-violet-700 text-xs"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" /> Add New Term
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {activeTab === 'records' ? (
+        <div className="space-y-4">
+          {/* Controls and Filters */}
+          <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
+            <div className="relative w-full md:w-80">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search text, user, term..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-36 text-xs">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="pending">Pending Review</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Violation</SelectItem>
+                  <SelectItem value="dismissed">Dismissed</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={severityFilter} onValueChange={setSeverityFilter}>
+                <SelectTrigger className="w-32 text-xs">
+                  <SelectValue placeholder="Severity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Severities</SelectItem>
+                  <SelectItem value="CRITICAL">Critical</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="LOW">Low</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-36 text-xs">
+                  <SelectValue placeholder="Field Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Fields</SelectItem>
+                  <SelectItem value="username">Username</SelectItem>
+                  <SelectItem value="full_name">Full Name</SelectItem>
+                  <SelectItem value="post_title">Post Title</SelectItem>
+                  <SelectItem value="post_description">Post Description</SelectItem>
+                  <SelectItem value="message">Message</SelectItem>
+                  <SelectItem value="review">Review</SelectItem>
+                  <SelectItem value="search">Search Query</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Records Table */}
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            {loading ? (
+              <div className="p-12 flex justify-center items-center">
+                <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+              </div>
+            ) : filteredRecords.length === 0 ? (
+              <div className="p-12 text-center text-muted-foreground">
+                <ShieldCheck className="w-12 h-12 mx-auto mb-3 text-emerald-500/60" />
+                <p className="font-bold text-lg text-foreground">No Moderation Flags Found</p>
+                <p className="text-sm mt-1">All user submitted content is currently clear of prohibited language.</p>
+              </div>
+            ) : (
+              <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[750px] text-left text-sm">
+                  <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="p-4">Type & Severity</th>
+                      <th className="p-4">User</th>
+                      <th className="p-4">Original Submitted Text</th>
+                      <th className="p-4">Matched Terms</th>
+                      <th className="p-4">Status & Action</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredRecords.map((rec) => (
+                      <tr key={rec.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-4">
+                          <div className="space-y-1.5">
+                            <Badge variant="outline" className="font-mono text-[10px] uppercase">
+                              {rec.content_type?.replace('_', ' ')}
+                            </Badge>
+                            <div>{getSeverityBadge(rec.severity)}</div>
+                          </div>
+                        </td>
+
+                        <td className="p-4">
+                          <div className="font-medium text-foreground">{rec.user_name || 'Anonymous User'}</div>
+                          <div className="text-xs text-muted-foreground">{rec.user_email || 'N/A'}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">{formatDate(rec.created_at)}</div>
+                        </td>
+
+                        <td className="p-4 max-w-xs">
+                          <div className="bg-muted/40 p-2 rounded-lg border border-border/50 text-xs font-mono break-words">
+                            <p className="line-clamp-2 text-foreground">{rec.original_text}</p>
+                          </div>
+                          {rec.filtered_text && rec.filtered_text !== rec.original_text && (
+                            <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                              Masked: <span className="text-violet-400">{rec.filtered_text}</span>
+                            </p>
+                          )}
+                        </td>
+
+                        <td className="p-4">
+                          <div className="flex flex-wrap gap-1 max-w-xs">
+                            {rec.matched_terms?.map((m, idx) => (
+                              <Badge key={idx} variant="secondary" className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/20">
+                                {m.term} <span className="opacity-70 text-[9px]">({m.category || m.language})</span>
+                              </Badge>
+                            ))}
+                          </div>
+                          {rec.language && (
+                            <span className="text-[10px] text-muted-foreground mt-1 block">
+                              Lang: {rec.language} ({Math.round((rec.confidence || 0.9) * 100)}% conf)
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="p-4">
+                          {getStatusBadge(rec.status, rec.action_taken)}
+                        </td>
+
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedRecord(rec);
+                                setAdminNotes(rec.admin_notes || '');
+                              }}
+                              className="text-xs h-8"
+                            >
+                              <Eye className="w-3.5 h-3.5 mr-1" /> Inspect
+                            </Button>
+                            {rec.status === 'pending' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleReviewAction(rec.id, 'approved')}
+                                  disabled={actionLoading === rec.id}
+                                  className="h-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10"
+                                  title="Approve / False Positive"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleReviewAction(rec.id, 'rejected')}
+                                  disabled={actionLoading === rec.id}
+                                  className="h-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                  title="Confirm Violation"
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Dictionary View */
+        <div className="space-y-4">
+          <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
+            <div className="relative w-full md:w-72">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search terms, variants..."
+                value={termSearch}
+                onChange={(e) => setTermSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <Select value={termLanguage} onValueChange={setTermLanguage}>
+                <SelectTrigger className="w-44 text-xs">
+                  <SelectValue placeholder="Language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Languages</SelectItem>
+                  <SelectItem value="english">English ({termsSummary?.english || 0})</SelectItem>
+                  <SelectItem value="malayalam">Malayalam ({termsSummary?.malayalam || 0})</SelectItem>
+                  <SelectItem value="malayalam_transliteration">Manglish ({termsSummary?.malayalam_transliteration || 0})</SelectItem>
+                  <SelectItem value="obfuscated">Obfuscated ({termsSummary?.obfuscated || 0})</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={termCategory} onValueChange={setTermCategory}>
+                <SelectTrigger className="w-36 text-xs">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="profanity">Profanity</SelectItem>
+                  <SelectItem value="slur">Slur</SelectItem>
+                  <SelectItem value="sexual">Sexual</SelectItem>
+                  <SelectItem value="insult">Insult</SelectItem>
+                  <SelectItem value="harassment">Harassment</SelectItem>
+                  <SelectItem value="hate_speech">Hate Speech</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={termSeverity} onValueChange={setTermSeverity}>
+                <SelectTrigger className="w-32 text-xs">
+                  <SelectValue placeholder="Severity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Severities</SelectItem>
+                  <SelectItem value="CRITICAL">Critical</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="LOW">Low</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={termStatus} onValueChange={setTermStatus}>
+                <SelectTrigger className="w-32 text-xs">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="enabled">Enabled Only</SelectItem>
+                  <SelectItem value="disabled">Disabled Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            {termsLoading ? (
+              <div className="p-12 flex justify-center items-center">
+                <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+              </div>
+            ) : terms.length === 0 ? (
+              <div className="p-12 text-center text-muted-foreground">
+                <p className="font-bold text-lg text-foreground">No Moderation Terms Found</p>
+                <p className="text-sm mt-1">Try adjusting your filters or click "Add New Term" to register one.</p>
+              </div>
+            ) : (
+              <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-sm">
+                  <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="p-4">Term & Language</th>
+                      <th className="p-4">Category & Severity</th>
+                      <th className="p-4">Variants / Aliases</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {terms.map((t) => (
+                      <tr key={t.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="p-4">
+                          <div className="font-bold font-mono text-foreground text-sm">{t.term}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Language: <span className="capitalize">{t.language?.replace('_', ' ')}</span>
+                          </div>
+                        </td>
+
+                        <td className="p-4">
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="text-[11px] capitalize">
+                              {t.category?.replace('_', ' ')}
+                            </Badge>
+                            <div>{getSeverityBadge(t.severity)}</div>
+                          </div>
+                        </td>
+
+                        <td className="p-4 max-w-xs">
+                          {t.variants && t.variants.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {t.variants.map((v, i) => (
+                                <Badge key={i} variant="secondary" className="text-[10px] font-mono">
+                                  {v}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">None (uses phonetics)</span>
+                          )}
+                        </td>
+
+                        <td className="p-4">
+                          <Button
+                            size="sm"
+                            variant={t.enabled ? 'outline' : 'secondary'}
+                            onClick={() => handleToggleTerm(t.id)}
+                            className={`text-xs h-7 px-2.5 font-bold ${
+                              t.enabled
+                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/20'
+                                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                            }`}
+                          >
+                            {t.enabled ? 'Active' : 'Disabled'}
+                          </Button>
+                        </td>
+
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setEditingTerm(t);
+                                setTermForm({
+                                  term: t.term,
+                                  language: t.language,
+                                  category: t.category,
+                                  severity: t.severity,
+                                  enabled: t.enabled,
+                                  variants: (t.variants || []).join(', '),
+                                  transliterations: (t.transliterations || []).join(', ')
+                                });
+                                setShowEditModal(true);
+                              }}
+                              className="h-8 text-xs"
+                            >
+                              <Edit className="w-3.5 h-3.5 mr-1" /> Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteTerm(t.id, t.term)}
+                              className="h-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Term Dialog */}
+      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Add Moderation Term</DialogTitle>
+            <DialogDescription>
+              Register a prohibited or sensitive keyword with immediate zero-deployment filter activation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-3">
+            <div>
+              <Label>Keyword / Term (Lowercased)</Label>
+              <Input
+                value={termForm.term}
+                onChange={(e) => setTermForm(prev => ({ ...prev, term: e.target.value }))}
+                placeholder="e.g. inappropriate_word"
+                className="mt-1 font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Language Group</Label>
+                <Select value={termForm.language} onValueChange={(val) => setTermForm(prev => ({ ...prev, language: val }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="english">English</SelectItem>
+                    <SelectItem value="malayalam">Malayalam Script</SelectItem>
+                    <SelectItem value="malayalam_transliteration">Manglish / Translit</SelectItem>
+                    <SelectItem value="obfuscated">Obfuscated / Leet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Category</Label>
+                <Select value={termForm.category} onValueChange={(val) => setTermForm(prev => ({ ...prev, category: val }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="profanity">Profanity</SelectItem>
+                    <SelectItem value="slur">Slur</SelectItem>
+                    <SelectItem value="sexual">Sexual</SelectItem>
+                    <SelectItem value="insult">Insult</SelectItem>
+                    <SelectItem value="harassment">Harassment</SelectItem>
+                    <SelectItem value="hate_speech">Hate Speech</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label>Severity Level</Label>
+              <Select value={termForm.severity} onValueChange={(val) => setTermForm(prev => ({ ...prev, severity: val }))}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CRITICAL">Critical (Strict Auto-Block)</SelectItem>
+                  <SelectItem value="HIGH">High (Auto-Block & Flag)</SelectItem>
+                  <SelectItem value="MEDIUM">Medium (Mask / Filter)</SelectItem>
+                  <SelectItem value="LOW">Low (Log only)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Variants / Obfuscated spellings (comma separated)</Label>
+              <Input
+                value={termForm.variants}
+                onChange={(e) => setTermForm(prev => ({ ...prev, variants: e.target.value }))}
+                placeholder="e.g. f*ck, fvk, f_u_c_k"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancel</Button>
+            <Button onClick={handleCreateTerm} disabled={savingTerm} className="bg-violet-600 hover:bg-violet-700">
+              {savingTerm ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Save & Apply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Term Dialog */}
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Edit Moderation Term</DialogTitle>
+            <DialogDescription>
+              Update keyword configuration and live filter severity rules.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-3">
+            <div>
+              <Label>Keyword / Term</Label>
+              <Input
+                value={termForm.term}
+                onChange={(e) => setTermForm(prev => ({ ...prev, term: e.target.value }))}
+                className="mt-1 font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Language Group</Label>
+                <Select value={termForm.language} onValueChange={(val) => setTermForm(prev => ({ ...prev, language: val }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="english">English</SelectItem>
+                    <SelectItem value="malayalam">Malayalam Script</SelectItem>
+                    <SelectItem value="malayalam_transliteration">Manglish / Translit</SelectItem>
+                    <SelectItem value="obfuscated">Obfuscated / Leet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Category</Label>
+                <Select value={termForm.category} onValueChange={(val) => setTermForm(prev => ({ ...prev, category: val }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="profanity">Profanity</SelectItem>
+                    <SelectItem value="slur">Slur</SelectItem>
+                    <SelectItem value="sexual">Sexual</SelectItem>
+                    <SelectItem value="insult">Insult</SelectItem>
+                    <SelectItem value="harassment">Harassment</SelectItem>
+                    <SelectItem value="hate_speech">Hate Speech</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label>Severity Level</Label>
+              <Select value={termForm.severity} onValueChange={(val) => setTermForm(prev => ({ ...prev, severity: val }))}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CRITICAL">Critical (Strict Auto-Block)</SelectItem>
+                  <SelectItem value="HIGH">High (Auto-Block & Flag)</SelectItem>
+                  <SelectItem value="MEDIUM">Medium (Mask / Filter)</SelectItem>
+                  <SelectItem value="LOW">Low (Log only)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Variants (comma separated)</Label>
+              <Input
+                value={termForm.variants}
+                onChange={(e) => setTermForm(prev => ({ ...prev, variants: e.target.value }))}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditModal(false)}>Cancel</Button>
+            <Button onClick={handleUpdateTerm} disabled={savingTerm} className="bg-violet-600 hover:bg-violet-700">
+              {savingTerm ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Update Term
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Terms Dialog */}
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle>Import Moderation Terms</DialogTitle>
+            <DialogDescription>
+              Paste a JSON array containing term objects (term, language, category, severity, variants).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              value={importJsonText}
+              onChange={(e) => setImportJsonText(e.target.value)}
+              placeholder={'[\n  {\n    "term": "badword",\n    "language": "english",\n    "category": "profanity",\n    "severity": "HIGH"\n  }\n]'}
+              rows={10}
+              className="font-mono text-xs"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowImportModal(false)}>Cancel</Button>
+            <Button onClick={handleImportTerms} disabled={savingTerm} className="bg-violet-600 hover:bg-violet-700">
+              {savingTerm ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Import & Activate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Inspect Detail Dialog */}
+      <Dialog open={!!selectedRecord} onOpenChange={(open) => { if (!open) setSelectedRecord(null); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-violet-500" />
+              Moderation Inspection: {selectedRecord?.content_type?.replace('_', ' ').toUpperCase()}
+            </DialogTitle>
+            <DialogDescription>
+              Logged on {formatDate(selectedRecord?.created_at)}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedRecord && (
+            <div className="space-y-4 py-4 text-sm">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="bg-muted/40 p-3 rounded-lg border border-border">
+                  <span className="text-xs text-muted-foreground block">Severity Level</span>
+                  <div className="mt-1">{getSeverityBadge(selectedRecord.severity)}</div>
+                </div>
+                <div className="bg-muted/40 p-3 rounded-lg border border-border">
+                  <span className="text-xs text-muted-foreground block">Action Status</span>
+                  <div className="mt-1">{getStatusBadge(selectedRecord.status, selectedRecord.action_taken)}</div>
+                </div>
+                <div className="bg-muted/40 p-3 rounded-lg border border-border">
+                  <span className="text-xs text-muted-foreground block">Language & Conf.</span>
+                  <span className="font-semibold text-xs mt-1 block">
+                    {selectedRecord.language} ({Math.round((selectedRecord.confidence || 0.9) * 100)}%)
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs uppercase text-muted-foreground">Original Submitted Text</Label>
+                <div className="bg-muted/60 p-3.5 rounded-lg border border-border text-sm font-mono break-all mt-1">
+                  {selectedRecord.original_text}
+                </div>
+              </div>
+
+              {selectedRecord.normalized_text && (
+                <div>
+                  <Label className="text-xs uppercase text-muted-foreground">Normalized Detection Representation</Label>
+                  <div className="bg-muted/30 p-2.5 rounded-lg border border-border text-xs font-mono break-all mt-1 text-muted-foreground">
+                    {selectedRecord.normalized_text}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-xs uppercase text-muted-foreground">Detected Prohibited Terms</Label>
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  {selectedRecord.matched_terms?.map((m, idx) => (
+                    <div key={idx} className="bg-red-500/10 border border-red-500/30 rounded-md px-2.5 py-1 text-xs">
+                      <span className="font-bold text-red-400">{m.term}</span>
+                      <span className="text-muted-foreground ml-1.5 text-[11px]">[{m.category} / {m.severity}]</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs uppercase text-muted-foreground">Internal Admin Notes</Label>
+                <Textarea
+                  value={adminNotes}
+                  onChange={(e) => setAdminNotes(e.target.value)}
+                  placeholder="Add administrative notes regarding this violation or false positive..."
+                  className="mt-1"
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setSelectedRecord(null)}>Close</Button>
+            <Button
+              variant="outline"
+              onClick={() => handleReviewAction(selectedRecord.id, 'dismissed')}
+              className="text-muted-foreground"
+            >
+              Dismiss
+            </Button>
+            <Button
+              onClick={() => handleReviewAction(selectedRecord.id, 'approved')}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Check className="w-4 h-4 mr-1.5" /> Approve / False Positive
+            </Button>
+            <Button
+              onClick={() => handleReviewAction(selectedRecord.id, 'rejected')}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Ban className="w-4 h-4 mr-1.5" /> Confirm Violation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Audit Logs Component
+function AuditLogsManagement() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [entityFilter, setEntityFilter] = useState('all');
+  const [actionFilter, setActionFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    fetchLogs();
+  }, [entityFilter, actionFilter, searchQuery]);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (entityFilter !== 'all') params.append('entity_type', entityFilter);
+      if (actionFilter !== 'all') params.append('action', actionFilter);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      params.append('limit', '100');
+
+      const res = await api.get(`/admin/audit-logs?${params.toString()}`);
+      setLogs(res.data.logs || []);
+      setTotal(res.data.total || 0);
+    } catch (error) {
+      console.error('Failed to fetch audit logs:', error);
+      toast.error('Failed to load audit logs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getActionBadge = (action) => {
+    if (action.includes('DELETED')) {
+      return <Badge variant="destructive" className="bg-red-500 text-white">{action}</Badge>;
+    }
+    if (action.includes('RESTORED') || action.includes('APPROVED')) {
+      return <Badge className="bg-emerald-500/20 text-emerald-500 border-emerald-500/30">{action}</Badge>;
+    }
+    if (action.includes('CREATED') || action.includes('ADDED')) {
+      return <Badge className="bg-cyan-500/20 text-cyan-500 border-cyan-500/30">{action}</Badge>;
+    }
+    if (action.includes('SOLD')) {
+      return <Badge className="bg-purple-500/20 text-purple-500 border-purple-500/30">{action}</Badge>;
+    }
+    return <Badge variant="outline">{action}</Badge>;
+  };
+
+  return (
+    <div className="space-y-6 w-full max-w-full overflow-hidden" data-testid="admin-audit-logs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-xl font-bold">Platform Audit History</h2>
+          <p className="text-xs text-muted-foreground">Immutable administrative history of all listing modifications, soft-deletes, restorations, sales, and dictionary alterations.</p>
+        </div>
+        <Badge variant="outline" className="text-xs self-start sm:self-auto font-mono">
+          {total} Total Audit Records
+        </Badge>
+      </div>
+
+      {/* Controls & Filters */}
+      <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by action, email, ID..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <Select value={entityFilter} onValueChange={setEntityFilter}>
+            <SelectTrigger className="w-36 text-xs">
+              <SelectValue placeholder="Entity Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Entities</SelectItem>
+              <SelectItem value="listing">Listings</SelectItem>
+              <SelectItem value="user">Users</SelectItem>
+              <SelectItem value="moderation_term">Moderation Terms</SelectItem>
+              <SelectItem value="conversation">Conversations</SelectItem>
+              <SelectItem value="report">Reports</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={actionFilter} onValueChange={setActionFilter}>
+            <SelectTrigger className="w-44 text-xs">
+              <SelectValue placeholder="Action Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Actions</SelectItem>
+              <SelectItem value="POST_CREATED">POST_CREATED</SelectItem>
+              <SelectItem value="POST_EDITED">POST_EDITED</SelectItem>
+              <SelectItem value="POST_DELETED">POST_DELETED</SelectItem>
+              <SelectItem value="POST_RESTORED">POST_RESTORED</SelectItem>
+              <SelectItem value="POST_ARCHIVED">POST_ARCHIVED</SelectItem>
+              <SelectItem value="LISTING_SOLD">LISTING_SOLD</SelectItem>
+              <SelectItem value="MODERATION_TERM_ADDED">MODERATION_TERM_ADDED</SelectItem>
+              <SelectItem value="MODERATION_TERM_UPDATED">MODERATION_TERM_UPDATED</SelectItem>
+              <SelectItem value="MODERATION_TERM_DELETED">MODERATION_TERM_DELETED</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Logs Table */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+        {loading ? (
+          <div className="p-12 flex justify-center items-center">
+            <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="p-12 text-center text-muted-foreground">
+            <RotateCcw className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
+            <p className="font-bold text-lg text-foreground">No Audit Records Found</p>
+            <p className="text-sm mt-1">Actions performed on listings, accounts, and moderation terms will be recorded here.</p>
+          </div>
+        ) : (
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[850px] text-left text-sm">
+              <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="p-4">Timestamp</th>
+                  <th className="p-4">Action</th>
+                  <th className="p-4">Entity</th>
+                  <th className="p-4">Actor</th>
+                  <th className="p-4">Reason / Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-4 whitespace-nowrap text-xs text-muted-foreground">
+                      {new Date(log.created_at).toLocaleString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </td>
+
+                    <td className="p-4">
+                      {getActionBadge(log.action)}
+                    </td>
+
+                    <td className="p-4">
+                      <div className="font-medium text-foreground capitalize">{log.entity_type}</div>
+                      <div className="font-mono text-[11px] text-muted-foreground truncate max-w-[150px]">{log.entity_id}</div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="text-xs font-semibold text-foreground">
+                        {log.admin_email || log.user_email || 'System / Platform'}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {log.admin_id ? `Admin (${log.admin_id.slice(0, 8)})` : (log.user_id ? `User (${log.user_id.slice(0, 8)})` : 'Automated')}
+                      </div>
+                    </td>
+
+                    <td className="p-4 max-w-sm">
+                      <p className="text-xs text-foreground font-medium">{log.reason || 'Standard operation'}</p>
+                      {log.new_state && (
+                        <div className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
+                          New: {typeof log.new_state === 'object' ? JSON.stringify(log.new_state).substring(0, 80) : String(log.new_state)}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Main Admin Dashboard
 export default function AdminDashboard() {
   const location = useLocation();
@@ -3012,6 +4413,8 @@ export default function AdminDashboard() {
 
   const navItems = [
     { path: '', label: 'Overview', icon: LayoutDashboard },
+    { path: '/moderation', label: 'Moderation & Filter', icon: ShieldAlert },
+    { path: '/audit-logs', label: 'Audit History', icon: RotateCcw },
     { path: '/users', label: 'Users', icon: Users },
     { path: '/listings', label: 'Listings', icon: Package },
     { path: '/kyc', label: 'KYC & Verification', icon: ShieldCheck },
@@ -3034,7 +4437,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-foreground">Admin Control Center</h1>
-              <p className="text-xs text-muted-foreground">Manage users, verification, listings, support, and payments</p>
+              <p className="text-xs text-muted-foreground">Manage moderation, audit history, users, verification, listings, support, and payments</p>
             </div>
           </div>
 
@@ -3076,6 +4479,8 @@ export default function AdminDashboard() {
           <div className="flex-1 min-w-0">
             <Routes>
               <Route index element={<Overview />} />
+              <Route path="moderation" element={<ModerationManagement />} />
+              <Route path="audit-logs" element={<AuditLogsManagement />} />
               <Route path="users" element={<UsersManagement />} />
               <Route path="listings" element={<ListingsManagement />} />
               <Route path="kyc" element={<KYCManagement />} />
@@ -3092,3 +4497,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+

@@ -47,6 +47,5 @@ cd backend
 npm test
 ```
 
-## Default Credentials
-- **Admin**: `admin@ggs.com` / `admin123`
-- **Demo User**: `user@ggs.com` / `user123`
+## Administrator Account
+- **Admin**: `admin@ggs.com` (Administrator role with access to Admin Control Center at `/admin`)

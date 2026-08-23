@@ -1,20 +1,15 @@
-const { BLOCKED_WORDS } = require('./constants');
+const { detectOffensiveContent } = require('../moderation/moderationService');
 
 function filterMessage(text) {
-  if (!text) return { filteredText: text, isFlagged: false };
-  const lowerText = text.toLowerCase();
-  let isFlagged = false;
-  let filteredText = text;
-
-  for (const word of BLOCKED_WORDS) {
-    if (lowerText.includes(word)) {
-      isFlagged = true;
-      const regex = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-      filteredText = filteredText.replace(regex, '*'.repeat(word.length));
-    }
-  }
-
-  return { filteredText, isFlagged };
+  if (!text) return { filteredText: text, isFlagged: false, matches: [] };
+  const detection = detectOffensiveContent(text);
+  return {
+    filteredText: detection.cleanText,
+    isFlagged: detection.hasMatches,
+    matches: detection.matches,
+    severity: detection.severity,
+    confidence: detection.confidence
+  };
 }
 
 module.exports = filterMessage;

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../lib/api';
 import ProductCard from '../components/ProductCard';
+import Avatar from '../components/Avatar';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Loader2, Star, MapPin, CheckCircle, Calendar, Package, ArrowLeft } from 'lucide-react';
@@ -69,13 +70,12 @@ export default function SellerProfile() {
         {/* Seller Header */}
         <div className="bg-card border border-border rounded-xl p-6 mb-8">
           <div className="flex flex-col sm:flex-row gap-6">
-            <div className="w-20 h-20 rounded-full bg-violet-600/10 flex items-center justify-center flex-shrink-0">
-              {seller.avatar ? (
-                <img src={seller.avatar} alt={seller.name} className="w-full h-full rounded-full object-cover" />
-              ) : (
-                <span className="text-2xl font-bold text-violet-500">{seller.name[0]}</span>
-              )}
-            </div>
+            <Avatar
+              src={seller.avatar}
+              name={seller.name}
+              size="2xl"
+              className="w-20 h-20 border-2 border-violet-500/30 shadow-md text-3xl"
+            />
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <h1 className="text-2xl font-black">{seller.name}</h1>
@@ -154,13 +154,12 @@ export default function SellerProfile() {
               {reviews.map((review) => (
                 <div key={review.id} className="bg-card border border-border rounded-xl p-4">
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                      {review.reviewer_avatar ? (
-                        <img src={review.reviewer_avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                      ) : (
-                        <span className="text-sm font-bold">{review.reviewer_name?.[0] || 'U'}</span>
-                      )}
-                    </div>
+                    <Avatar
+                      src={review.reviewer_avatar}
+                      name={review.reviewer_name}
+                      size="lg"
+                      className="w-10 h-10 border border-violet-500/20"
+                    />
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
                         <p className="font-medium">{review.reviewer_name}</p>

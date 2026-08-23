@@ -7,11 +7,15 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const connectDB = require('./config/db');
 const app = require('./app');
 const wsService = require('./services/websocketService');
+const { initAdminAndInfrastructure } = require('./utils/initAdmin');
 
 const PORT = process.env.PORT || 8000;
 
 async function startServer() {
   await connectDB();
+
+  // Non-destructive initialization: ensures admin account and base taxonomy exist if empty
+  await initAdminAndInfrastructure();
 
   const OTP = require('./models/OTP');
   try {
