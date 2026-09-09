@@ -57,11 +57,35 @@ const enrichListing = async (listing, categoryMap = null, userMap = null) => {
     previous_status: listing.previous_status || null,
     created_by_admin: Boolean(listing.created_by_admin),
     is_free_listing: Boolean(listing.is_free_listing),
+    free_edit_used: Boolean(listing.free_edit_used),
+    free_edit_used_at: listing.free_edit_used_at || null,
     sold_at: listing.sold_at || null,
     sold_to_user_id: listing.sold_to_user_id || null,
     updated_at: listing.updated_at || null,
     created_at: listing.created_at
   };
+
+  // Calculate 24-hour one-time free edit window status
+  const createdAtMs = new Date(listing.created_at || Date.now()).getTime();
+  const nowMs = Date.now();
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+  const expiresAtMs = createdAtMs + TWENTY_FOUR_HOURS_MS;
+  const isWithin24h = nowMs < expiresAtMs;
+  const freeEditUsed = Boolean(listing.free_edit_used);
+
+  result.free_edit_available = isWithin24h && !freeEditUsed;
+  result.free_edit_expires_at = new Date(expiresAtMs).toISOString();
+
+  if (freeEditUsed) {
+    result.free_edit_status = 'used';
+  } else if (!isWithin24h) {
+    result.free_edit_status = 'expired';
+  } else {
+    result.free_edit_status = 'available';
+  }
+
+  result.free_edit_hours_left = isWithin24h ? Math.max(0, Math.ceil((expiresAtMs - nowMs) / (60 * 60 * 1000))) : 0;
+  result.free_edit_minutes_left = isWithin24h ? Math.max(0, Math.ceil((expiresAtMs - nowMs) / (60 * 1000))) : 0;
 
   let cat = categoryMap ? categoryMap.get(listing.category_id) : null;
   if (!cat && !categoryMap) {
@@ -585,6 +609,8 @@ const createListing = async (req, res) => {
       payment_status: user.role === 'admin' ? 'completed' : 'pending',
       created_by_admin: user.role === 'admin',
       is_free_listing: user.role === 'admin',
+      free_edit_used: false,
+      free_edit_used_at: null,
       featured: false,
       views_count: 0,
       created_at: new Date().toISOString()
@@ -624,7 +650,30 @@ const updateListing = async (req, res) => {
       return res.status(404).json({ detail: 'Listing not found' });
     }
     if (listing.seller_id !== user.id && user.role !== 'admin') {
-      return res.status(403).json({ detail: 'Not authorized' });
+      return res.status(403).json({ detail: 'Not authorized to edit this listing' });
+    }
+
+    const nowMs = Date.now();
+    const createdAtMs = new Date(listing.created_at || Date.now()).getTime();
+    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+    // Normal users are strictly subject to the 1-free-edit / 24-hour expiration rule
+    if (user.role !== 'admin') {
+      // Check 1: Has 24 hours elapsed since creation?
+      if (nowMs >= createdAtMs + TWENTY_FOUR_HOURS_MS) {
+        return res.status(403).json({
+          detail: 'The 24-hour free edit window has expired. Listings can only be edited within the first 24 hours of posting.',
+          code: 'FREE_EDIT_EXPIRED'
+        });
+      }
+
+      // Check 2: Has the one free edit already been consumed?
+      if (listing.free_edit_used) {
+        return res.status(403).json({
+          detail: 'The free edit for this listing has already been used. You get exactly one free edit within 24 hours of posting.',
+          code: 'FREE_EDIT_ALREADY_USED'
+        });
+      }
     }
 
     // Merge effective data for validation
@@ -650,7 +699,8 @@ const updateListing = async (req, res) => {
       return res.status(400).json({ detail: validation.error });
     }
 
-    const updateData = { ...req.body, updated_at: new Date().toISOString() };
+    const nowIso = new Date().toISOString();
+    const updateData = { ...req.body, updated_at: nowIso };
     if (updateData.title && updateData.title !== listing.title) {
       updateData.slug = generateSlug(updateData.title);
     }
@@ -658,7 +708,13 @@ const updateListing = async (req, res) => {
       updateData.item_type = expectedItemType;
     }
 
-    // Prevent non-admin user from spoofing admin or payment fields
+    // Strip client-controlled system and security fields
+    delete updateData.id;
+    delete updateData.seller_id;
+    delete updateData.created_at;
+    delete updateData.free_edit_used;
+    delete updateData.free_edit_used_at;
+
     if (user.role !== 'admin') {
       delete updateData.created_by_admin;
       delete updateData.is_free_listing;
@@ -666,8 +722,63 @@ const updateListing = async (req, res) => {
       delete updateData.is_deleted;
     }
 
-    await Listing.updateOne({ id: listing_id }, { $set: updateData });
-    const updatedListing = await Listing.findOne({ id: listing_id }).lean();
+    let updatedListing;
+
+    if (user.role === 'admin') {
+      // Admins have unrestricted editing privileges without consuming user free edits
+      updatedListing = await Listing.findOneAndUpdate(
+        { id: listing_id },
+        { $set: updateData },
+        { new: true, returnDocument: 'after' }
+      ).lean();
+    } else {
+      // Atomic concurrency-safe update for normal users:
+      // Ensures free_edit_used is not true and creation timestamp is strictly within 24 hours
+      const twentyFourHoursAgoIso = new Date(nowMs - TWENTY_FOUR_HOURS_MS).toISOString();
+
+      updatedListing = await Listing.findOneAndUpdate(
+        {
+          id: listing_id,
+          seller_id: user.id,
+          free_edit_used: { $ne: true },
+          created_at: { $gt: twentyFourHoursAgoIso }
+        },
+        {
+          $set: {
+            ...updateData,
+            free_edit_used: true,
+            free_edit_used_at: nowIso
+          }
+        },
+        { new: true, returnDocument: 'after' }
+      ).lean();
+
+      if (!updatedListing) {
+        // Double-check why atomic update failed to give precise error
+        const recheck = await Listing.findOne({ id: listing_id });
+        if (!recheck) {
+          return res.status(404).json({ detail: 'Listing not found' });
+        }
+        if (recheck.seller_id !== user.id) {
+          return res.status(403).json({ detail: 'Not authorized to edit this listing' });
+        }
+        if (recheck.free_edit_used) {
+          return res.status(403).json({
+            detail: 'The free edit for this listing has already been used. You get exactly one free edit within 24 hours of posting.',
+            code: 'FREE_EDIT_ALREADY_USED'
+          });
+        }
+        const recheckCreatedMs = new Date(recheck.created_at || 0).getTime();
+        if (Date.now() >= recheckCreatedMs + TWENTY_FOUR_HOURS_MS) {
+          return res.status(403).json({
+            detail: 'The 24-hour free edit window has expired. Listings can only be edited within the first 24 hours of posting.',
+            code: 'FREE_EDIT_EXPIRED'
+          });
+        }
+        return res.status(403).json({ detail: 'Listing edit could not be processed.', code: 'EDIT_REJECTED' });
+      }
+    }
+
     const enriched = await enrichListing(updatedListing);
     return res.status(200).json(enriched);
   } catch (error) {

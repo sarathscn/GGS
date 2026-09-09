@@ -348,7 +348,7 @@ export default function Marketplace() {
   );
 
   return (
-    <div className="min-h-screen py-8">
+    <div className="w-full py-6 sm:py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -469,10 +469,10 @@ export default function Marketplace() {
           </div>
         )}
 
-        <div className="flex gap-8">
+        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
           {/* Desktop Filters Sidebar */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
-            <div className="bg-card border border-border rounded-xl p-4 sticky top-24">
+            <div className="bg-card border border-border rounded-xl p-4 sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto no-scrollbar">
               <h3 className="font-bold mb-4 flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4" />
                 Filters
@@ -482,24 +482,24 @@ export default function Marketplace() {
           </aside>
 
           {/* Listings Grid */}
-          <div className="flex-1">
+          <div className="flex-1 w-full min-w-0">
             {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {[...Array(9)].map((_, i) => (
-                  <div key={i} className="bg-card rounded-xl border border-border animate-pulse">
-                    <div className="aspect-[4/3] bg-muted"></div>
-                    <div className="p-4 space-y-2">
-                      <div className="h-4 bg-muted rounded w-1/3"></div>
-                      <div className="h-5 bg-muted rounded w-2/3"></div>
-                      <div className="h-6 bg-muted rounded w-1/2"></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="bg-card rounded-xl border border-border animate-pulse overflow-hidden">
+                    <div className="aspect-[4/3] bg-muted/60"></div>
+                    <div className="p-3.5 space-y-2">
+                      <div className="h-3 bg-muted rounded w-1/3"></div>
+                      <div className="h-4 bg-muted rounded w-2/3"></div>
+                      <div className="h-5 bg-muted rounded w-1/2"></div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : listings.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
                 {listings.map((listing, index) => (
-                  <div key={listing.id} className={`animate-fadeIn stagger-${index % 6 + 1}`}>
+                  <div key={listing.id} className={`animate-fadeIn stagger-${index % 6 + 1} h-full min-w-0`}>
                     <ProductCard listing={listing} />
                   </div>
                 ))}

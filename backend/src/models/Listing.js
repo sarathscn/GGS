@@ -66,6 +66,8 @@ const listingSchema = new mongoose.Schema(
     previous_status: { type: String, default: null },
     created_by_admin: { type: Boolean, default: false, index: true },
     is_free_listing: { type: Boolean, default: false },
+    free_edit_used: { type: Boolean, default: false, index: true },
+    free_edit_used_at: { type: String, default: null },
     sold_at: { type: String, default: null },
     sold_to_user_id: { type: String, default: null },
     updated_at: { type: String, default: null },

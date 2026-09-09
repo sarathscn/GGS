@@ -663,46 +663,85 @@ export default function Dashboard() {
                     .map((listing) => (
                       <div key={listing.id} className="relative group">
                         <ProductCard product={listing} />
-                        <div className="mt-2 flex items-center justify-between gap-2 p-2 bg-card border border-border rounded-lg">
-                          <Badge className={statusColors[listing.status] || 'bg-zinc-500/10 text-zinc-500'}>
-                            {listing.status?.replace('_', ' ').toUpperCase()}
-                          </Badge>
-                          <div className="flex items-center gap-1">
-                            {listing.status !== 'sold' && listing.status !== 'completed' && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleMarkAsSold(listing.id)}
-                                disabled={markingSoldId === listing.id}
-                                className="h-8 px-2 text-xs hover:bg-emerald-500/10 hover:text-emerald-500"
-                                title="Mark as Sold"
-                                data-testid={`mark-sold-${listing.id}`}
-                              >
-                                {markingSoldId === listing.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-500" />
-                                ) : (
-                                  <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                                )}
-                                {markingSoldId === listing.id ? 'Saving...' : 'Mark Sold'}
-                              </Button>
-                            )}
-                            {listing.status !== 'sold' && listing.status !== 'completed' && (
-                              <Link to={`/edit/${listing.id}`}>
-                                <Button size="icon" variant="ghost" className="h-8 w-8" data-testid={`edit-listing-${listing.id}`}>
-                                  <Edit className="w-3.5 h-3.5" />
+                        <div className="mt-2 flex flex-col gap-1.5 p-2 bg-card border border-border rounded-lg">
+                          <div className="flex items-center justify-between gap-2">
+                            <Badge className={statusColors[listing.status] || 'bg-zinc-500/10 text-zinc-500'}>
+                              {listing.status?.replace('_', ' ').toUpperCase()}
+                            </Badge>
+                            <div className="flex items-center gap-1">
+                              {listing.status !== 'sold' && listing.status !== 'completed' && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleMarkAsSold(listing.id)}
+                                  disabled={markingSoldId === listing.id}
+                                  className="h-8 px-2 text-xs hover:bg-emerald-500/10 hover:text-emerald-500"
+                                  title="Mark as Sold"
+                                  data-testid={`mark-sold-${listing.id}`}
+                                >
+                                  {markingSoldId === listing.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-500" />
+                                  ) : (
+                                    <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                  )}
+                                  {markingSoldId === listing.id ? 'Saving...' : 'Mark Sold'}
                                 </Button>
-                              </Link>
-                            )}
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDeleteListing(listing.id)}
-                              data-testid={`delete-listing-${listing.id}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                              )}
+                              {listing.status !== 'sold' && listing.status !== 'completed' && (
+                                user?.role === 'admin' || listing.free_edit_available ? (
+                                  <Link to={`/edit/${listing.id}`}>
+                                    <Button 
+                                      size="icon" 
+                                      variant="ghost" 
+                                      className="h-8 w-8 text-violet-500 hover:text-violet-400 hover:bg-violet-500/10" 
+                                      title={user?.role === 'admin' ? 'Admin Edit' : `1 Free Edit Available (${listing.free_edit_hours_left || 24}h left)`}
+                                      data-testid={`edit-listing-${listing.id}`}
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </Link>
+                                ) : (
+                                  <Button 
+                                    size="icon" 
+                                    variant="ghost" 
+                                    disabled 
+                                    className="h-8 w-8 opacity-40 cursor-not-allowed" 
+                                    title={listing.free_edit_status === 'used' ? 'Free edit already used' : 'Free edit expired (24h after posting)'}
+                                    data-testid={`edit-listing-${listing.id}`}
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </Button>
+                                )
+                              )}
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeleteListing(listing.id)}
+                                data-testid={`delete-listing-${listing.id}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           </div>
+                          
+                          {/* Free Edit Status Indicator for Non-sold listings */}
+                          {listing.status !== 'sold' && listing.status !== 'completed' && (
+                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/40">
+                              <span className="text-muted-foreground">Edit Rule:</span>
+                              {user?.role === 'admin' ? (
+                                <span className="text-violet-400 font-medium">Admin Unlimited</span>
+                              ) : listing.free_edit_available ? (
+                                <span className="text-emerald-500 font-medium flex items-center gap-1">
+                                  ● 1 Free Edit ({listing.free_edit_hours_left || 24}h left)
+                                </span>
+                              ) : listing.free_edit_status === 'used' ? (
+                                <span className="text-muted-foreground">Free Edit Used</span>
+                              ) : (
+                                <span className="text-amber-500/80">Free Edit Expired</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}

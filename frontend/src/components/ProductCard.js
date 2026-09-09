@@ -103,17 +103,21 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
   return (
     <div
       onClick={handleCardClick}
-      className="group relative bg-card border border-border rounded-xl overflow-hidden hover:border-violet-500/50 transition-all duration-300 card-glow cursor-pointer flex flex-col justify-between h-full"
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="article"
+      className="group relative bg-card border border-border rounded-xl overflow-hidden hover:border-violet-500/50 transition-all duration-300 card-glow cursor-pointer flex flex-col justify-between h-full min-w-0 max-w-full"
       data-testid={`product-card-${listing.id}`}
     >
-      <div>
-        {/* Image Container with Non-nested Link */}
-        <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-          <Link to={listingUrl} tabIndex={-1} aria-hidden="true" className="block w-full h-full">
+      <div className="min-w-0">
+        {/* Image Container with Intentional 4/3 Aspect Ratio & Responsive Containment */}
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-950/40 dark:bg-zinc-950/60 rounded-t-xl flex items-center justify-center">
+          <Link to={listingUrl} tabIndex={-1} aria-hidden="true" className="block w-full h-full flex items-center justify-center">
             <img
               src={listing.images?.[0] || 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=400'}
               alt={listing.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              loading="lazy"
+              className="w-full h-full object-contain p-1 group-hover:scale-105 transition-transform duration-500"
             />
           </Link>
           
@@ -122,7 +126,7 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
             type="button"
             variant="ghost"
             size="icon"
-            className={`absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm hover:bg-black/70 z-10 ${
+            className={`absolute top-2 right-2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/60 backdrop-blur-sm hover:bg-black/80 z-10 ${
               inWishlist ? 'text-red-500' : 'text-white'
             }`}
             onClick={toggleWishlist}
@@ -130,18 +134,18 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
             data-testid={`wishlist-btn-${listing.id}`}
             aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
           >
-            <Heart className={`w-4 h-4 ${inWishlist ? 'fill-current' : ''}`} />
+            <Heart className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${inWishlist ? 'fill-current' : ''}`} />
           </Button>
 
           {/* Badges */}
           <div className="absolute top-2 left-2 flex flex-col gap-1 pointer-events-none z-10">
             {listing.featured && (
-              <Badge className="bg-amber-500 text-white">
+              <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs px-1.5 py-0.5 shadow-sm">
                 Featured
               </Badge>
             )}
             {listing.item_type === 'digital' && (
-              <Badge className="bg-cyan-500 text-white">
+              <Badge className="bg-cyan-500 text-white text-[10px] sm:text-xs px-1.5 py-0.5 shadow-sm">
                 Digital
               </Badge>
             )}
@@ -149,7 +153,7 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
 
           {/* Views */}
           {listing.views_count > 0 && (
-            <div className="absolute bottom-2 left-2 flex items-center gap-1 text-xs text-white bg-black/50 backdrop-blur-sm px-2 py-1 rounded-full pointer-events-none z-10">
+            <div className="absolute bottom-2 left-2 flex items-center gap-1 text-[11px] text-white bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-full pointer-events-none z-10 shadow-sm">
               <Eye className="w-3 h-3" />
               <span>{listing.views_count}</span>
             </div>
@@ -157,41 +161,41 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
         </div>
 
         {/* Content */}
-        <div className="p-4 flex flex-col justify-between">
+        <div className="p-3 sm:p-3.5 flex flex-col justify-between min-w-0">
           {/* Category */}
-          <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2 truncate min-w-0">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1 sm:mb-1.5 truncate min-w-0">
             <Tag className="w-3 h-3 shrink-0 text-cyan-500" />
-            <span className="truncate">{listing.category_name}</span>
+            <span className="truncate font-medium">{listing.category_name}</span>
           </div>
 
           {/* Title Link with fixed 2-line height & word break */}
           <Link 
             to={listingUrl} 
-            className="block group-hover:text-violet-500 transition-colors mb-2 min-h-[2.5rem]" 
+            className="block group-hover:text-violet-500 transition-colors mb-1.5 sm:mb-2 min-h-[2.25rem] sm:min-h-[2.5rem] min-w-0" 
             title={listing.title}
           >
-            <h3 className="font-bold text-sm line-clamp-2 leading-snug break-words overflow-hidden text-foreground">
+            <h3 className="font-bold text-xs sm:text-sm line-clamp-2 leading-snug break-words overflow-hidden text-foreground">
               {listing.title}
             </h3>
           </Link>
 
           {/* Price */}
-          <div className="flex items-baseline gap-2 mb-2 min-w-0">
-            <p className={`font-mono text-lg font-bold truncate ${listing.price_type === 'free' ? 'text-emerald-500' : 'text-violet-500'}`}>
+          <div className="flex items-baseline gap-1.5 mb-1.5 sm:mb-2 min-w-0">
+            <p className={`font-mono text-base sm:text-lg font-bold truncate ${listing.price_type === 'free' ? 'text-emerald-500' : 'text-violet-500'}`}>
               {formatPrice(listing.price)}
             </p>
             {priceTypeLabels[listing.price_type] && (
-              <span className="text-xs text-muted-foreground truncate shrink-0">{priceTypeLabels[listing.price_type]}</span>
+              <span className="text-[11px] sm:text-xs text-muted-foreground truncate shrink-0">{priceTypeLabels[listing.price_type]}</span>
             )}
           </div>
 
           {/* Meta */}
-          <div className="flex items-center justify-between gap-2 min-w-0">
-            <Badge variant="outline" className={`shrink-0 ${conditionColors[listing.condition] || ''}`}>
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
+            <Badge variant="outline" className={`shrink-0 text-[10px] sm:text-xs py-0 px-1.5 ${conditionColors[listing.condition] || ''}`}>
               {listing.condition}
             </Badge>
             <div 
-              className="flex items-center gap-1 text-xs text-muted-foreground min-w-0 max-w-[130px] sm:max-w-[150px] truncate"
+              className="flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground min-w-0 max-w-[120px] sm:max-w-[140px] truncate"
               title={listing.location}
             >
               <MapPin className="w-3 h-3 shrink-0 text-violet-400" />
@@ -202,12 +206,12 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
       </div>
 
       {/* Seller Info with Independent Non-nested Link */}
-      <div className="px-4 pb-4">
-        <div className="pt-3 border-t border-border flex items-center justify-between min-w-0 gap-2">
+      <div className="px-3 pb-3 sm:px-3.5 sm:pb-3.5 min-w-0">
+        <div className="pt-2 sm:pt-2.5 border-t border-border flex items-center justify-between min-w-0 gap-2">
           <Link 
             to={`/seller/${listing.seller_id}`}
             onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-2 hover:text-violet-500 text-foreground transition-colors z-10 min-w-0 max-w-[70%]"
+            className="flex items-center gap-1.5 hover:text-violet-500 text-foreground transition-colors z-10 min-w-0 max-w-[70%]"
             data-testid={`seller-link-${listing.seller_id}`}
             title={listing.seller_name}
           >
@@ -215,15 +219,15 @@ export default function ProductCard({ listing: listingProp, product, onWishlistC
               src={listing.seller_avatar}
               name={listing.seller_name}
               size="xs"
-              className="w-6 h-6 border border-border"
+              className="w-5 h-5 sm:w-6 sm:h-6 border border-border shrink-0"
             />
-            <span className="text-xs truncate font-medium">{listing.seller_name}</span>
+            <span className="text-[11px] sm:text-xs truncate font-medium">{listing.seller_name}</span>
             {listing.seller_verified && (
               <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0" />
             )}
           </Link>
           {listing.seller_rating > 0 && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <div className="flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground shrink-0">
               <span className="text-amber-500">★</span>
               <span>{listing.seller_rating?.toFixed(1)}</span>
             </div>
