@@ -13,8 +13,13 @@ const chatReportSchema = new mongoose.Schema(
     reason: { type: String, required: true }, // spam, harassment, scam, inappropriate, other
     details: { type: String, default: null },
     status: { type: String, default: 'pending' }, // pending, resolved, dismissed
+    decision: { type: String, default: null },
+    action_taken: { type: String, default: null },
+    admin_response: { type: String, default: null }, // User-facing remark
+    admin_notes: { type: String, default: null }, // Internal notes
     reviewed_by: { type: String, default: null },
     reviewed_at: { type: String, default: null },
+    updated_at: { type: String, default: () => new Date().toISOString() },
     created_at: { type: String, default: () => new Date().toISOString() }
   },
   {

@@ -50,7 +50,7 @@ export default function Logo({
               GAME GEAR SWAP
             </span>
           </span>
-          <span className="text-[10px] sm:text-[11px] font-semibold text-muted-foreground tracking-widest uppercase mt-0.5">
+          <span className="text-[10px] sm:text-[11px] font-bold text-muted-foreground tracking-widest uppercase mt-0.5">
             Kerala's Gaming Marketplace
           </span>
         </div>

@@ -30,6 +30,10 @@ const formatUserResponse = (user) => ({
   google_email: user.google_email || (user.auth_type === 'google' ? user.email : null),
   has_password: Boolean(user.password),
   verification_status: user.verification_status || null,
+  is_suspended: Boolean(user.is_suspended || user.is_banned),
+  is_banned: Boolean(user.is_banned || user.is_suspended),
+  banned_at: user.banned_at || null,
+  ban_reason: user.ban_reason || null,
   avatar: user.avatar || null,
   avatar_type: user.avatar_type || (user.avatar?.startsWith('http') || user.avatar?.startsWith('/') || user.avatar?.startsWith('data:') ? 'image' : (user.avatar ? 'emoji' : 'image')),
   avatar_emoji: user.avatar_emoji || (user.avatar && !user.avatar.startsWith('http') && !user.avatar.startsWith('/') && !user.avatar.startsWith('data:') ? user.avatar : null),
@@ -152,18 +156,34 @@ const register = async (req, res) => {
 // POST /api/auth/login
 const login = async (req, res) => {
   try {
-    const { email, phone, password } = req.body;
+    const { email, phone, identifier, user_id, username, password } = req.body;
 
-    const query = {};
-    if (email) {
-      query.email = email.toLowerCase();
+    let user = null;
+    const loginIdentifier = email || identifier || user_id || username;
+
+    if (loginIdentifier) {
+      const cleanId = String(loginIdentifier).trim();
+      const cleanEmail = cleanId.toLowerCase();
+      const normPhoneVal = normalizePhone(cleanId);
+      const escapedCleanId = cleanId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      const conditions = [
+        { email: cleanEmail },
+        { username: { $regex: new RegExp(`^${escapedCleanId}$`, 'i') } },
+        { id: cleanId }
+      ];
+      if (normPhoneVal) {
+        conditions.push({ phone: normPhoneVal });
+      }
+
+      user = await User.findOne({ $or: conditions });
     } else if (phone) {
-      query.phone = normalizePhone(phone);
+      const normPhone = normalizePhone(phone);
+      user = await User.findOne({ phone: normPhone });
     } else {
-      return res.status(400).json({ detail: 'Email or phone required' });
+      return res.status(400).json({ detail: 'Email, username, user ID, or phone required' });
     }
 
-    const user = await User.findOne(query);
     if (!user) {
       return res.status(401).json({ detail: 'Invalid credentials' });
     }
@@ -175,8 +195,14 @@ const login = async (req, res) => {
       }
     }
 
-    if (user.is_suspended) {
-      return res.status(403).json({ detail: 'Account is suspended' });
+    if (user.is_suspended || user.is_banned) {
+      const banReasonText = user.ban_reason ? ` Reason: ${user.ban_reason}` : '';
+      return res.status(403).json({
+        detail: `Your account has been suspended.${banReasonText} If you believe this action was made in error, you can contact support.`,
+        is_suspended: true,
+        is_banned: true,
+        ban_reason: user.ban_reason || null
+      });
     }
 
     const token = createToken(user.id, user.role);
@@ -202,6 +228,14 @@ const googleAuth = async (req, res) => {
     const cleanEmail = email.toLowerCase();
     const existing = await User.findOne({ email: cleanEmail });
     if (existing) {
+      if (existing.is_suspended || existing.is_banned) {
+        return res.status(403).json({
+          detail: 'Your account has been suspended. Please contact support if you believe this is a mistake.',
+          is_suspended: true,
+          is_banned: true,
+          ban_reason: existing.ban_reason || null
+        });
+      }
       if (!existing.google_linked) {
         existing.google_linked = true;
         existing.google_email = cleanEmail;
@@ -229,6 +263,7 @@ const googleAuth = async (req, res) => {
       is_email_verified: true,
       is_seller_verified: false,
       is_suspended: false,
+      is_banned: false,
       avatar: avatar || null,
       created_at: new Date().toISOString()
     });
@@ -294,6 +329,14 @@ const verifyOtp = async (req, res) => {
 
     const existing = await User.findOne({ phone: normPhone });
     if (existing) {
+      if (existing.is_suspended || existing.is_banned) {
+        return res.status(403).json({
+          detail: 'Your account has been suspended. Please contact support if you believe this is a mistake.',
+          is_suspended: true,
+          is_banned: true,
+          ban_reason: existing.ban_reason || null
+        });
+      }
       const token = createToken(existing.id, existing.role);
       return res.status(200).json({
         token,

@@ -93,25 +93,10 @@ async function runAllTests() {
     tester.adminToken = adminLogin.body.token;
   }
 
-  // 4. User Login
-  const userLogin = await tester.runTest(
-    'User Login',
-    'POST',
-    'auth/login',
-    200,
-    { email: 'user@ggs.com', password: 'user123' }
-  );
-  if (userLogin.success && userLogin.body.token) {
-    tester.token = userLogin.body.token;
-  }
-
-  // 5. Auth Me
-  await tester.runTest('Get Current User (Me)', 'GET', 'auth/me', 200);
-
-  // 6. User Signup
+  // 4. User Signup
   const timestamp = Date.now().toString().slice(-6);
   const testEmail = `test_${timestamp}@ggs.com`;
-  await tester.runTest(
+  const signupRes = await tester.runTest(
     'User Signup',
     'POST',
     'auth/register',
@@ -123,6 +108,24 @@ async function runAllTests() {
       username: `u_${timestamp}`
     }
   );
+  if (signupRes.success && signupRes.body.token) {
+    tester.token = signupRes.body.token;
+  }
+
+  // 5. User Login
+  const userLogin = await tester.runTest(
+    'User Login',
+    'POST',
+    'auth/login',
+    200,
+    { email: testEmail, password: 'testpass123' }
+  );
+  if (userLogin.success && userLogin.body.token) {
+    tester.token = userLogin.body.token;
+  }
+
+  // 6. Auth Me
+  await tester.runTest('Get Current User (Me)', 'GET', 'auth/me', 200);
 
   // 7. OTP Flow
   const otpSend = await tester.runTest(

@@ -4,6 +4,7 @@ const Category = require('../models/Category');
 const User = require('../models/User');
 const Review = require('../models/Review');
 const Conversation = require('../models/Conversation');
+const MonthlyPostUsage = require('../models/MonthlyPostUsage');
 const generateSlug = require('../utils/generateSlug');
 const {
   isDigitalCategory,
@@ -13,7 +14,36 @@ const {
 const { moderateText, detectOffensiveContent } = require('../moderation/moderationService');
 const { logAuditEvent } = require('../utils/auditLogger');
 
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
 const enrichListing = async (listing, categoryMap = null, userMap = null) => {
+  const publishedAt = listing.published_at || listing.created_at || new Date().toISOString();
+  let expiresAt = listing.expires_at;
+  if (!expiresAt) {
+    const pubMs = new Date(publishedAt).getTime();
+    expiresAt = new Date(pubMs + NINETY_DAYS_MS).toISOString();
+  }
+
+  const nowMs = Date.now();
+  const expiresAtMs = new Date(expiresAt).getTime();
+  const isPastExpiry = nowMs >= expiresAtMs;
+
+  let currentStatus = listing.status;
+  // Auto-expire active listings that have exceeded validity
+  if (currentStatus === 'active' && isPastExpiry) {
+    currentStatus = 'expired';
+    // Asynchronously update database record so expiry is persisted
+    Listing.updateOne(
+      { id: listing.id, status: 'active' },
+      { $set: { status: 'expired', featured: false, updated_at: new Date().toISOString() } }
+    ).catch(() => {});
+  }
+
+  const daysRemaining = currentStatus === 'active' 
+    ? Math.max(0, Math.ceil((expiresAtMs - nowMs) / (24 * 60 * 60 * 1000))) 
+    : 0;
+
   const result = {
     id: listing.id,
     title: listing.title,
@@ -46,9 +76,9 @@ const enrichListing = async (listing, categoryMap = null, userMap = null) => {
     seller_avatar: null,
     seller_verified: false,
     seller_rating: 0,
-    status: listing.status,
+    status: currentStatus,
     payment_status: listing.payment_status,
-    featured: Boolean(listing.featured),
+    featured: Boolean(listing.featured) && currentStatus === 'active',
     views_count: Number(listing.views_count || 0),
     is_deleted: Boolean(listing.is_deleted),
     deleted_at: listing.deleted_at || null,
@@ -57,11 +87,56 @@ const enrichListing = async (listing, categoryMap = null, userMap = null) => {
     previous_status: listing.previous_status || null,
     created_by_admin: Boolean(listing.created_by_admin),
     is_free_listing: Boolean(listing.is_free_listing),
+    
+    // 90-day Validity & Expiry fields
+    published_at: publishedAt,
+    expires_at: expiresAt,
+    validity_days: Number(listing.validity_days || 90),
+    days_remaining: daysRemaining,
+    is_expired: isPastExpiry || currentStatus === 'expired',
+    
+    // 30-day Extension fields
+    extension_count: Number(listing.extension_count || 0),
+    extension_history: listing.extension_history || [],
+    extension_eligible: !listing.is_deleted && currentStatus === 'active' && (listing.extension_count || 0) < 1 && daysRemaining <= 30 && daysRemaining >= 0,
+    
+    // Free Edit Allowance fields
+    free_edit_allowed: Boolean(listing.free_edit_allowed),
+    free_edit_granted_at: listing.free_edit_granted_at || null,
+    free_edit_granted_by: listing.free_edit_granted_by || null,
+    free_edit_reason: listing.free_edit_reason || null,
+    free_edit_history: listing.free_edit_history || [],
+    free_edit_used: Boolean(listing.free_edit_used),
+    free_edit_used_at: listing.free_edit_used_at || null,
+
     sold_at: listing.sold_at || null,
     sold_to_user_id: listing.sold_to_user_id || null,
     updated_at: listing.updated_at || null,
     created_at: listing.created_at
   };
+
+  // Calculate free edit window status (24-hour initial OR admin-granted allowance)
+  const createdAtMs = new Date(listing.created_at || Date.now()).getTime();
+  const initialEditExpiresAtMs = createdAtMs + TWENTY_FOUR_HOURS_MS;
+  const isWithin24h = nowMs < initialEditExpiresAtMs;
+  const freeEditUsed = Boolean(listing.free_edit_used);
+  const freeEditAllowed = Boolean(listing.free_edit_allowed);
+
+  result.free_edit_available = (isWithin24h && !freeEditUsed) || (freeEditAllowed && !freeEditUsed);
+  result.free_edit_expires_at = new Date(initialEditExpiresAtMs).toISOString();
+
+  if (freeEditUsed) {
+    result.free_edit_status = 'used';
+  } else if (freeEditAllowed) {
+    result.free_edit_status = 'granted';
+  } else if (isWithin24h) {
+    result.free_edit_status = 'available';
+  } else {
+    result.free_edit_status = 'expired';
+  }
+
+  result.free_edit_hours_left = isWithin24h ? Math.max(0, Math.ceil((initialEditExpiresAtMs - nowMs) / (60 * 60 * 1000))) : 0;
+  result.free_edit_minutes_left = isWithin24h ? Math.max(0, Math.ceil((initialEditExpiresAtMs - nowMs) / (60 * 1000))) : 0;
 
   let cat = categoryMap ? categoryMap.get(listing.category_id) : null;
   if (!cat && !categoryMap) {
@@ -152,13 +227,19 @@ const getListings = async (req, res) => {
       query.price = { ...(query.price || {}), $lte: Number(max_price) };
     }
 
-    if (condition) query.condition = condition;
-    if (item_type) query.item_type = item_type;
-    if (location) query.location = location;
-    if (location_district) query.location_district = location_district;
-    if (location_taluk) query.location_taluk = location_taluk;
-    if (location_area) query.location_area = location_area;
-    if (price_type) query.price_type = price_type;
+    if (condition && condition !== 'all') query.condition = condition;
+    if (item_type && item_type !== 'all') query.item_type = item_type;
+    if (location && location !== 'all') query.location = location;
+    if (location_district && location_district !== 'all') {
+      query.location_district = new RegExp(`^${location_district.trim()}$`, 'i');
+    }
+    if (location_taluk && location_taluk !== 'all') {
+      query.location_taluk = new RegExp(`^${location_taluk.trim()}$`, 'i');
+    }
+    if (location_area && location_area !== 'all') {
+      query.location_area = new RegExp(`^${location_area.trim()}$`, 'i');
+    }
+    if (price_type && price_type !== 'all') query.price_type = price_type;
     if (featured === 'true' || featured === true) query.featured = true;
 
     let sortOption = { created_at: -1 };
@@ -469,7 +550,7 @@ const validateListingPayload = async (data, isUpdate = false) => {
     if (numPrice > 1000000) {
       return { valid: false, error: 'Maximum price allowed is ₹10,00,000' };
     }
-  } else if (!isUpdate && data.price_type !== 'free') {
+  } else if (!isUpdate && data.price_type !== 'free' && data.price_type !== 'negotiable' && data.price_type !== 'exchange') {
     return { valid: false, error: 'Price is required' };
   }
 
@@ -555,6 +636,66 @@ const createListing = async (req, res) => {
       }
     }
 
+    // Determine eligibility for verified seller monthly free post (3 free posts per calendar month)
+    const dbUser = await User.findOne({ id: user.id }).lean();
+    const isVerifiedSeller = Boolean(
+      dbUser && (dbUser.is_seller_verified || dbUser.verification_status === 'verified' || dbUser.verification_status === 'approved')
+    );
+
+    let isFreeListing = false;
+    let listingStatus = 'pending_payment';
+    let paymentStatus = 'pending';
+    let consumedMonthlyFreeSlot = false;
+
+    if (user.role === 'admin') {
+      isFreeListing = true;
+      listingStatus = 'active';
+      paymentStatus = 'completed';
+    } else if (isVerifiedSeller) {
+      const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+
+      // Ensure usage document exists for this user and month
+      await MonthlyPostUsage.updateOne(
+        { user_id: user.id, month: currentMonth },
+        {
+          $setOnInsert: {
+            id: uuidv4(),
+            user_id: user.id,
+            month: currentMonth,
+            free_posts_used: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        },
+        { upsert: true }
+      ).catch(() => {});
+
+      // Atomically increment if under the monthly quota of 3
+      const updatedUsage = await MonthlyPostUsage.findOneAndUpdate(
+        {
+          user_id: user.id,
+          month: currentMonth,
+          free_posts_used: { $lt: 3 }
+        },
+        {
+          $inc: { free_posts_used: 1 },
+          $set: { updated_at: new Date().toISOString() }
+        },
+        { new: true }
+      );
+
+      if (updatedUsage) {
+        consumedMonthlyFreeSlot = true;
+        isFreeListing = true;
+        listingStatus = 'active';
+        paymentStatus = 'completed';
+      }
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const expiresAtIso = new Date(now.getTime() + NINETY_DAYS_MS).toISOString();
+
     const newListing = new Listing({
       id: uuidv4(),
       slug: generateSlug(data.title),
@@ -562,7 +703,7 @@ const createListing = async (req, res) => {
       description: data.description,
       category_id: data.category_id,
       subcategory_id: data.subcategory_id || null,
-      price: data.price_type === 'free' ? 0 : Number(data.price),
+      price: data.price_type === 'free' || !data.price ? 0 : Number(data.price),
       price_type: data.price_type || 'fixed',
       condition: data.condition,
       item_type: itemType,
@@ -581,13 +722,22 @@ const createListing = async (req, res) => {
       brand: data.brand || null,
       model: data.model || null,
       seller_id: user.id,
-      status: user.role === 'admin' ? 'active' : 'pending_payment',
-      payment_status: user.role === 'admin' ? 'completed' : 'pending',
+      status: listingStatus,
+      payment_status: paymentStatus,
       created_by_admin: user.role === 'admin',
-      is_free_listing: user.role === 'admin',
+      is_free_listing: isFreeListing,
+      published_at: listingStatus === 'active' ? nowIso : null,
+      expires_at: expiresAtIso,
+      validity_days: 90,
+      extension_count: 0,
+      extension_history: [],
+      free_edit_allowed: false,
+      free_edit_history: [],
+      free_edit_used: false,
+      free_edit_used_at: null,
       featured: false,
       views_count: 0,
-      created_at: new Date().toISOString()
+      created_at: nowIso
     });
 
     await newListing.save();
@@ -599,13 +749,14 @@ const createListing = async (req, res) => {
         entity_id: newListing.id,
         action: 'POST_CREATED',
         previous_state: null,
-        new_state: { status: 'active', created_by_admin: true, is_free_listing: true },
-        reason: 'Admin created post directly (free)',
+        new_state: { status: 'active', created_by_admin: true, is_free_listing: true, expires_at: expiresAtIso },
+        reason: 'Admin created post directly (free with 90-day validity)',
         req
       });
     }
 
     const enriched = await enrichListing(newListing.toJSON());
+    enriched.consumed_monthly_free_slot = consumedMonthlyFreeSlot;
     return res.status(200).json(enriched);
   } catch (error) {
     console.error('Create listing error:', error);
@@ -624,7 +775,29 @@ const updateListing = async (req, res) => {
       return res.status(404).json({ detail: 'Listing not found' });
     }
     if (listing.seller_id !== user.id && user.role !== 'admin') {
-      return res.status(403).json({ detail: 'Not authorized' });
+      return res.status(403).json({ detail: 'Not authorized to edit this listing' });
+    }
+
+    const nowMs = Date.now();
+    const createdAtMs = new Date(listing.created_at || Date.now()).getTime();
+    const isWithin24h = nowMs < createdAtMs + TWENTY_FOUR_HOURS_MS;
+    const hasAdminGrant = Boolean(listing.free_edit_allowed);
+
+    // Normal users are strictly subject to either the 24-hour initial free edit window OR an admin-granted free edit allowance
+    if (user.role !== 'admin') {
+      if (!hasAdminGrant && !isWithin24h) {
+        return res.status(403).json({
+          detail: 'The 24-hour free edit window has expired. You can submit a Free Edit Request via Support Tickets to request an edit allowance from an administrator.',
+          code: 'FREE_EDIT_EXPIRED'
+        });
+      }
+
+      if (listing.free_edit_used && !hasAdminGrant) {
+        return res.status(403).json({
+          detail: 'The free edit for this listing has already been used. You can submit a Free Edit Request via Support Tickets if you need additional corrections.',
+          code: 'FREE_EDIT_ALREADY_USED'
+        });
+      }
     }
 
     // Merge effective data for validation
@@ -650,7 +823,8 @@ const updateListing = async (req, res) => {
       return res.status(400).json({ detail: validation.error });
     }
 
-    const updateData = { ...req.body, updated_at: new Date().toISOString() };
+    const nowIso = new Date().toISOString();
+    const updateData = { ...req.body, updated_at: nowIso };
     if (updateData.title && updateData.title !== listing.title) {
       updateData.slug = generateSlug(updateData.title);
     }
@@ -658,7 +832,18 @@ const updateListing = async (req, res) => {
       updateData.item_type = expectedItemType;
     }
 
-    // Prevent non-admin user from spoofing admin or payment fields
+    // Strip client-controlled system and security fields
+    delete updateData.id;
+    delete updateData.seller_id;
+    delete updateData.created_at;
+    delete updateData.free_edit_used;
+    delete updateData.free_edit_used_at;
+    delete updateData.free_edit_allowed;
+    delete updateData.expires_at;
+    delete updateData.validity_days;
+    delete updateData.extension_count;
+    delete updateData.extension_history;
+
     if (user.role !== 'admin') {
       delete updateData.created_by_admin;
       delete updateData.is_free_listing;
@@ -666,8 +851,70 @@ const updateListing = async (req, res) => {
       delete updateData.is_deleted;
     }
 
-    await Listing.updateOne({ id: listing_id }, { $set: updateData });
-    const updatedListing = await Listing.findOne({ id: listing_id }).lean();
+    let updatedListing;
+
+    if (user.role === 'admin') {
+      // Admins have unrestricted editing privileges without consuming user free edits
+      updatedListing = await Listing.findOneAndUpdate(
+        { id: listing_id },
+        { $set: updateData },
+        { new: true, returnDocument: 'after' }
+      ).lean();
+    } else {
+      // Concurrency-safe update for regular sellers:
+      const twentyFourHoursAgoIso = new Date(nowMs - TWENTY_FOUR_HOURS_MS).toISOString();
+      const updateFields = {
+        ...updateData,
+        free_edit_used: true,
+        free_edit_used_at: nowIso,
+        free_edit_allowed: false
+      };
+
+      const matchQuery = hasAdminGrant
+        ? { id: listing_id, seller_id: user.id, free_edit_allowed: true }
+        : { id: listing_id, seller_id: user.id, free_edit_used: { $ne: true }, created_at: { $gt: twentyFourHoursAgoIso } };
+
+      updatedListing = await Listing.findOneAndUpdate(
+        matchQuery,
+        {
+          $set: updateFields,
+          $push: {
+            free_edit_history: {
+              granted_at: listing.free_edit_granted_at || listing.created_at,
+              granted_by: listing.free_edit_granted_by || (hasAdminGrant ? 'admin' : 'initial_allowance'),
+              reason: listing.free_edit_reason || (hasAdminGrant ? 'Admin granted free edit used' : 'Initial 24h edit used'),
+              used_at: nowIso
+            }
+          }
+        },
+        { new: true, returnDocument: 'after' }
+      ).lean();
+
+      if (!updatedListing) {
+        const recheck = await Listing.findOne({ id: listing_id });
+        if (!recheck) {
+          return res.status(404).json({ detail: 'Listing not found' });
+        }
+        if (recheck.seller_id !== user.id) {
+          return res.status(403).json({ detail: 'Not authorized to edit this listing' });
+        }
+        if (!recheck.free_edit_allowed && recheck.free_edit_used) {
+          return res.status(403).json({
+            detail: 'The free edit for this listing has already been used. You can submit a Free Edit Request via Support Tickets.',
+            code: 'FREE_EDIT_ALREADY_USED'
+          });
+        }
+        const recheckCreatedMs = new Date(recheck.created_at || 0).getTime();
+        if (!recheck.free_edit_allowed && Date.now() >= recheckCreatedMs + TWENTY_FOUR_HOURS_MS) {
+          return res.status(403).json({
+            detail: 'The 24-hour free edit window has expired. You can submit a Free Edit Request via Support Tickets.',
+            code: 'FREE_EDIT_EXPIRED'
+          });
+        }
+        return res.status(403).json({ detail: 'Listing edit could not be processed.', code: 'EDIT_REJECTED' });
+      }
+    }
+
     const enriched = await enrichListing(updatedListing);
     return res.status(200).json(enriched);
   } catch (error) {
@@ -785,7 +1032,14 @@ const markListingSold = async (req, res) => {
 const getMyListings = async (req, res) => {
   try {
     const user = req.user;
-    const { status } = req.query;
+    const { status, page, limit } = req.query;
+
+    const nowIso = new Date().toISOString();
+    // Server-side proactive auto-expiry for active listings past expires_at
+    await Listing.updateMany(
+      { seller_id: user.id, status: 'active', expires_at: { $lte: nowIso, $ne: null } },
+      { $set: { status: 'expired', featured: false, updated_at: nowIso } }
+    ).catch(() => {});
 
     const query = { seller_id: user.id };
     if (status === 'active') {
@@ -793,20 +1047,46 @@ const getMyListings = async (req, res) => {
       query.is_deleted = { $ne: true };
     } else if (status === 'sold') {
       query.status = 'sold';
+      query.is_deleted = { $ne: true };
+    } else if (status === 'expired') {
+      query.status = 'expired';
+      query.is_deleted = { $ne: true };
     } else if (status === 'archived') {
       query.status = 'archived';
-    } else if (status === 'deleted' && user.role === 'admin') {
-      query.status = 'deleted';
-    } else if (status === 'all') {
-      // Returns everything except soft-deleted
       query.is_deleted = { $ne: true };
+    } else if (status === 'deleted') {
+      query.is_deleted = true;
+    } else if (status === 'all') {
+      // Returns all including deleted/sold/expired
     } else {
-      // Default: active and sold are visible to the seller
+      // Default: active and sold are visible to the seller, exclude soft-deleted
       query.is_deleted = { $ne: true };
     }
 
-    const rawListings = await Listing.find(query).sort({ created_at: -1 }).limit(100).lean();
+    const total = await Listing.countDocuments(query);
+    const pageSize = limit ? Math.min(100, Math.max(1, Number(limit))) : (page ? 20 : 100);
+    const currentPage = page ? Math.max(1, Number(page)) : 1;
+    const skip = (currentPage - 1) * pageSize;
+
+    const rawListings = await Listing.find(query)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean();
+
     const listings = await Promise.all(rawListings.map((l) => enrichListing(l)));
+
+    if (page || limit) {
+      return res.status(200).json({
+        total,
+        page: currentPage,
+        limit: pageSize,
+        total_pages: Math.ceil(total / pageSize) || 1,
+        listings
+      });
+    }
+
+    // Default response format (array) for backward compatibility
     return res.status(200).json(listings);
   } catch (error) {
     console.error('Get my listings error:', error);
@@ -901,6 +1181,41 @@ const getSellerListingsOnly = async (req, res) => {
   }
 };
 
+// GET /api/listings/free-posts-allowance
+const getFreePostsAllowance = async (req, res) => {
+  try {
+    const user = req.user;
+    const dbUser = await User.findOne({ id: user.id }).lean();
+    const isVerified = Boolean(
+      dbUser && (dbUser.is_seller_verified || dbUser.verification_status === 'verified' || dbUser.verification_status === 'approved')
+    );
+
+    const now = new Date();
+    const currentMonth = now.toISOString().slice(0, 7); // 'YYYY-MM'
+
+    const usage = await MonthlyPostUsage.findOne({ user_id: user.id, month: currentMonth }).lean();
+    const used = usage ? Number(usage.free_posts_used || 0) : 0;
+    const limit = 3;
+    const remaining = isVerified ? Math.max(0, limit - used) : 0;
+
+    const nextMonthYear = now.getUTCMonth() === 11 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+    const nextMonthIndex = (now.getUTCMonth() + 1) % 12;
+    const resetsAt = new Date(Date.UTC(nextMonthYear, nextMonthIndex, 1, 0, 0, 0)).toISOString();
+
+    return res.status(200).json({
+      is_verified: isVerified,
+      month: currentMonth,
+      limit,
+      used,
+      remaining,
+      resets_at: resetsAt
+    });
+  } catch (error) {
+    console.error('Get free posts allowance error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
 module.exports = {
   getListings,
   getFeaturedListings,
@@ -914,5 +1229,7 @@ module.exports = {
   getMyListings,
   getSellerProfile,
   getSellerListingsOnly,
+  getFreePostsAllowance,
   enrichListing
 };
+

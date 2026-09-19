@@ -264,11 +264,15 @@ export default function ProductDetail() {
   };
 
   const formatPrice = (price) => {
+    if (listing?.price_type === 'free') return 'Free';
+    if (listing?.price_type === 'negotiable' && (!price || Number(price) === 0)) return 'Negotiable';
+    if (listing?.price_type === 'exchange' && (!price || Number(price) === 0)) return 'Exchange';
+    if (price === 0) return 'Free';
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
       maximumFractionDigits: 0,
-    }).format(price);
+    }).format(Number(price) || 0);
   };
 
   const formatDate = (dateString) => {
@@ -281,11 +285,11 @@ export default function ProductDetail() {
   };
 
   const conditionColors = {
-    'New': 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-    'Like New': 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-    'Excellent': 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
-    'Good': 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-    'Fair': 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+    'New': 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30',
+    'Like New': 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+    'Excellent': 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',
+    'Good': 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+    'Fair': 'bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30',
   };
 
   const handleShare = async () => {
@@ -468,7 +472,7 @@ export default function ProductDetail() {
           {listing.condition}
         </Badge>
         {listing.seller_verified && (
-          <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-xs">
+          <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-xs font-semibold">
             <CheckCircle className="w-3 h-3 mr-1" />
             Verified Seller
           </Badge>
@@ -479,15 +483,33 @@ export default function ProductDetail() {
         {listing.title}
       </h1>
 
-      <div className="flex items-baseline gap-2 pt-1 border-t border-border/50">
-        <p className="font-mono text-2xl sm:text-3xl md:text-4xl font-extrabold text-violet-500" data-testid="listing-price">
-          {listing.price === 0 ? 'FREE' : formatPrice(listing.price)}
+      <div className="flex items-center gap-3 pt-2 pb-1 border-t border-border/50 flex-wrap">
+        <p
+          className={`font-mono text-2xl sm:text-3xl md:text-4xl font-black tracking-tight ${
+            listing.price_type === 'free' || (listing.price_type === 'negotiable' && (!listing.price || Number(listing.price) === 0))
+              ? 'text-emerald-700 dark:text-emerald-400'
+              : 'text-violet-700 dark:text-violet-400'
+          }`}
+          data-testid="listing-price"
+        >
+          {formatPrice(listing.price)}
         </p>
-        {listing.price_type === 'negotiable' && (
-          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded">(Negotiable)</span>
+        {listing.price_type === 'negotiable' && Number(listing.price) > 0 && (
+          <Badge
+            variant="outline"
+            className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-xs sm:text-sm px-2.5 py-1 font-bold rounded-md shrink-0 shadow-sm"
+            data-testid="listing-negotiable-badge"
+          >
+            Negotiable
+          </Badge>
         )}
-        {listing.price_type === 'exchange' && (
-          <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded">(Exchange)</span>
+        {listing.price_type === 'exchange' && Number(listing.price) > 0 && (
+          <Badge
+            variant="outline"
+            className="bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 text-xs sm:text-sm px-2.5 py-1 font-bold rounded-md shrink-0 shadow-sm"
+          >
+            Exchange
+          </Badge>
         )}
       </div>
 
@@ -544,15 +566,38 @@ export default function ProductDetail() {
       </div>
 
       {/* Owner Actions */}
-      {user && listing.seller_id === user.id && (
+      {user && (listing.seller_id === user.id || user.role === 'admin') && (
         <div className="border-t border-border/60 pt-2.5 mt-2.5 space-y-2">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Owner Actions</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              {user.role === 'admin' && listing.seller_id !== user.id ? 'Admin Management' : 'Owner Actions'}
+            </p>
+            {user.role !== 'admin' && (
+              <span className={`text-[11px] font-medium ${
+                listing.free_edit_available ? 'text-emerald-500' : listing.free_edit_status === 'used' ? 'text-muted-foreground' : 'text-amber-500/80'
+              }`}>
+                {listing.free_edit_available ? `1 Free Edit (${listing.free_edit_hours_left || 24}h left)` : listing.free_edit_status === 'used' ? 'Free edit used' : 'Free edit expired'}
+              </span>
+            )}
+          </div>
           <div className="flex gap-2">
-            <Link to={`/edit-listing/${listing.id}`} className="flex-1">
-              <Button variant="outline" size="sm" className="w-full text-xs h-8">
-                Edit Listing
+            {user.role === 'admin' || listing.free_edit_available ? (
+              <Link to={`/edit-listing/${listing.id}`} className="flex-1">
+                <Button variant="outline" size="sm" className="w-full text-xs h-8 text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 font-semibold">
+                  {user.role === 'admin' && listing.seller_id !== user.id ? 'Admin Edit Listing' : 'Edit Listing'}
+                </Button>
+              </Link>
+            ) : (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled 
+                className="flex-1 text-xs h-8 opacity-50 cursor-not-allowed"
+                title={listing.free_edit_status === 'used' ? 'Free edit already used (1 allowed within 24 hours)' : 'Free edit expired (24h window closed)'}
+              >
+                {listing.free_edit_status === 'used' ? 'Edit (Free edit used)' : 'Edit (Free edit expired)'}
               </Button>
-            </Link>
+            )}
             {listing.status === 'active' && (
               <Button 
                 variant="outline" 

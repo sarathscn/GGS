@@ -12,24 +12,21 @@ const supportTicketSchema = new mongoose.Schema(
     category: { 
       type: String, 
       required: true,
-      enum: [
-        'Technical issue',
-        'Payment issue',
-        'Listing issue',
-        'Account issue',
-        'Verification issue',
-        'Scam/fraud report',
-        'Fake deal',
-        'Fake sale',
-        'Seller/buyer problem',
-        'Messaging problem',
-        'Other support request'
-      ]
+      index: true
+    },
+    request_type: {
+      type: String,
+      default: 'general',
+      enum: ['general', 'expiry_extension', 'free_edit', 'payment_issue', 'account_issue', 'report_dispute', 'other'],
+      index: true
     },
     subject: { type: String, required: true },
     description: { type: String, required: true },
-    listing_id: { type: String, default: null },
+    listing_id: { type: String, default: null, index: true },
+    listing_title: { type: String, default: null },
+    current_expires_at: { type: String, default: null },
     transaction_id: { type: String, default: null },
+    action_taken: { type: String, default: 'none' }, // none, extension_granted, extension_rejected, free_edit_granted, free_edit_rejected
     status: { 
       type: String, 
       default: 'open', 
@@ -41,7 +38,9 @@ const supportTicketSchema = new mongoose.Schema(
       default: 'medium', 
       enum: ['low', 'medium', 'high', 'urgent'] 
     },
-    admin_notes: { type: String, default: null },
+    admin_response: { type: String, default: null }, // User-facing remark/response from admin
+    decision: { type: String, default: null }, // User-facing decision, e.g. RESOLVED, ACTION_TAKEN, EXTENSION_GRANTED, FREE_EDIT_GRANTED, REJECTED
+    admin_notes: { type: String, default: null }, // Internal private moderation notes
     resolved_by: { type: String, default: null },
     resolved_at: { type: String, default: null },
     created_at: { type: String, default: () => new Date().toISOString() },

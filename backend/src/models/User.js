@@ -20,6 +20,7 @@ const userSchema = new mongoose.Schema(
     google_id: { type: String, default: null },
     verification_status: { type: String, default: null }, // pending, verified, rejected
     is_suspended: { type: Boolean, default: false },
+    is_banned: { type: Boolean, default: false },
     avatar: { type: String, default: null },
     avatar_type: { type: String, enum: ['image', 'emoji', null], default: 'image' },
     avatar_emoji: { type: String, default: null },
@@ -32,8 +33,15 @@ const userSchema = new mongoose.Schema(
     rating_count: { type: Number, default: 0 },
     banned_at: { type: String, default: null },
     banned_by: { type: String, default: null },
+    ban_reason: { type: String, default: null },
+    admin_notes: { type: String, default: null },
     verified_at: { type: String, default: null },
     verified_by: { type: String, default: null },
+    verification_revoked_at: { type: String, default: null },
+    verification_revoked_by: { type: String, default: null },
+    verification_revocation_reason: { type: String, default: null },
+    verification_admin_notes: { type: String, default: null },
+    moderation_history: { type: Array, default: [] },
     role_changed_at: { type: String, default: null },
     role_changed_by: { type: String, default: null },
     created_at: { type: String, default: () => new Date().toISOString() }

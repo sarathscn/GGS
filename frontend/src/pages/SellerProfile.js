@@ -133,9 +133,11 @@ export default function SellerProfile() {
         <div className="mb-12">
           <h2 className="text-xl font-bold mb-6">Listings by {seller.name}</h2>
           {listings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
               {listings.map((listing) => (
-                <ProductCard key={listing.id} listing={listing} />
+                <div key={listing.id} className="h-full min-w-0">
+                  <ProductCard listing={listing} />
+                </div>
               ))}
             </div>
           ) : (

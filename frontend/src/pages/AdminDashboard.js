@@ -31,6 +31,7 @@ import {
   TabsTrigger,
 } from '../components/ui/tabs';
 import Logo from '../components/Logo';
+import PaginationControls from '../components/ui/PaginationControls';
 import { toast } from 'sonner';
 import {
   LayoutDashboard,
@@ -68,7 +69,22 @@ import {
   Receipt,
   AlertTriangle,
   Plus,
-  Send
+  Send,
+  BookOpen,
+  Clock,
+  ShoppingBag,
+  Tag,
+  MapPin,
+  Sparkles,
+  Filter,
+  Layers,
+  Copy,
+  CheckCheck,
+  Code,
+  FileSearch,
+  History,
+  RefreshCw,
+  ZoomIn
 } from 'lucide-react';
 
 // Utility: Export to Excel (CSV)
@@ -98,17 +114,40 @@ const exportToExcel = (data, filename) => {
   link.click();
 };
 
-// Stats Card Component
-function StatsCard({ title, value, icon: Icon, color, subtitle }) {
+// Interactive Stats Card Component
+function StatsCard({ title, value, icon: Icon, color, subtitle, onClick, to, ariaLabel, isActive, className = '' }) {
+  const navigate = useNavigate();
+
+  const handleClick = (e) => {
+    if (onClick) {
+      onClick(e);
+    } else if (to) {
+      navigate(to);
+    }
+  };
+
+  const isInteractive = Boolean(onClick || to);
+
   return (
-    <div className="bg-card border border-border rounded-xl p-6">
+    <div
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      onClick={isInteractive ? handleClick : undefined}
+      onKeyDown={isInteractive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(e); } } : undefined}
+      aria-label={ariaLabel || title}
+      className={`bg-card border border-border rounded-xl p-6 transition-all select-none group ${
+        isInteractive 
+          ? 'cursor-pointer hover:border-violet-500/50 hover:bg-muted/30 hover:shadow-md hover:shadow-violet-500/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 active:scale-[0.99]' 
+          : ''
+      } ${isActive ? 'ring-1 ring-violet-500/50 border-violet-500/60 bg-violet-500/5' : ''} ${className}`}
+    >
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold mt-1">{value}</p>
-          {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+        <div className="min-w-0 pr-2">
+          <p className="text-sm text-muted-foreground font-medium truncate group-hover:text-foreground transition-colors">{title}</p>
+          <p className="text-2xl font-bold mt-1 text-foreground truncate">{value}</p>
+          {subtitle && <p className="text-xs text-muted-foreground mt-1 truncate">{subtitle}</p>}
         </div>
-        <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center`}>
+        <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform`}>
           <Icon className="w-6 h-6 text-white" />
         </div>
       </div>
@@ -116,10 +155,11 @@ function StatsCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
-// Overview Component
+// Overview Component with Interactive Cards & Quick Stats
 function Overview() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchStats();
@@ -147,7 +187,12 @@ function Overview() {
   return (
     <div className="space-y-8" data-testid="admin-overview">
       <div>
-        <h2 className="text-xl font-bold mb-4">Dashboard Overview</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Dashboard Overview</h2>
+          <span className="text-xs text-muted-foreground">Click any card to filter or navigate</span>
+        </div>
+        
+        {/* Main 4 Interactive Overview Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatsCard
             title="Total Users"
@@ -155,6 +200,8 @@ function Overview() {
             subtitle={`${stats?.banned_users || 0} banned, ${stats?.verified_users || 0} verified`}
             icon={Users}
             color="bg-violet-600"
+            to="/admin/users"
+            ariaLabel="Navigate to Users Management"
           />
           <StatsCard
             title="Total Listings"
@@ -162,6 +209,8 @@ function Overview() {
             subtitle={`${stats?.active_listings || 0} active`}
             icon={Package}
             color="bg-cyan-500"
+            to="/admin/listings?status=all"
+            ariaLabel="Navigate to Listings Management"
           />
           <StatsCard
             title="Total Revenue"
@@ -169,6 +218,8 @@ function Overview() {
             subtitle={`${stats?.total_payments || 0} payments`}
             icon={CreditCard}
             color="bg-emerald-500"
+            to="/admin/payments"
+            ariaLabel="Navigate to Revenue & Payments"
           />
           <StatsCard
             title="Pending Actions"
@@ -176,32 +227,87 @@ function Overview() {
             subtitle={`${stats?.pending_kyc || 0} KYC, ${stats?.pending_reports || 0} reports`}
             icon={AlertTriangle}
             color="bg-amber-500"
+            to="/admin/moderation?status=pending"
+            ariaLabel="Navigate to Pending Moderation Actions"
           />
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Quick Stats Interactive List */}
         <div className="bg-card border border-border rounded-xl p-6">
-          <h3 className="font-bold mb-4">Quick Stats</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Pending Listings</span>
-              <span className="font-mono font-bold">{stats?.pending_listings || 0}</span>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold">Quick Stats</h3>
+            <span className="text-[11px] text-muted-foreground">Click row to open view</span>
+          </div>
+          <div className="space-y-2.5">
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/admin/listings?status=pending_payment')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate('/admin/listings?status=pending_payment'); }}
+              className="flex items-center justify-between p-2.5 rounded-lg border border-transparent hover:border-violet-500/30 hover:bg-muted/40 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-500"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-2 rounded-full bg-orange-400" />
+                <span className="text-sm text-muted-foreground hover:text-foreground">Pending Listings (Payment)</span>
+              </div>
+              <span className="font-mono font-bold text-foreground bg-muted/60 px-2 py-0.5 rounded text-xs">
+                {stats?.pending_listings || 0}
+              </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Pending KYC</span>
-              <span className="font-mono font-bold">{stats?.pending_kyc || 0}</span>
+
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/admin/kyc?status=pending')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate('/admin/kyc?status=pending'); }}
+              className="flex items-center justify-between p-2.5 rounded-lg border border-transparent hover:border-amber-500/30 hover:bg-muted/40 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-2 rounded-full bg-amber-400" />
+                <span className="text-sm text-muted-foreground hover:text-foreground">Pending KYC & Verification</span>
+              </div>
+              <span className="font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded text-xs">
+                {stats?.pending_kyc || 0}
+              </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Pending Reports</span>
-              <span className="font-mono font-bold">{stats?.pending_reports || 0}</span>
+
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/admin/reports?status=pending')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate('/admin/reports?status=pending'); }}
+              className="flex items-center justify-between p-2.5 rounded-lg border border-transparent hover:border-rose-500/30 hover:bg-muted/40 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-2 rounded-full bg-rose-400" />
+                <span className="text-sm text-muted-foreground hover:text-foreground">Pending Ad Reports</span>
+              </div>
+              <span className="font-mono font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded text-xs">
+                {stats?.pending_reports || 0}
+              </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Chat Reports</span>
-              <span className="font-mono font-bold">{stats?.pending_chat_reports || 0}</span>
+
+            <div 
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/admin/reports?type=chat')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate('/admin/reports?type=chat'); }}
+              className="flex items-center justify-between p-2.5 rounded-lg border border-transparent hover:border-cyan-500/30 hover:bg-muted/40 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-2 rounded-full bg-cyan-400" />
+                <span className="text-sm text-muted-foreground hover:text-foreground">Chat Moderation Reports</span>
+              </div>
+              <span className="font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded text-xs">
+                {stats?.pending_chat_reports || 0}
+              </span>
             </div>
           </div>
         </div>
+
+        {/* Export Data */}
         <div className="bg-card border border-border rounded-xl p-6">
           <h3 className="font-bold mb-4">Export Data</h3>
           <div className="grid grid-cols-2 gap-2">
@@ -265,7 +371,7 @@ function ExportButton({ type, label }) {
 }
 
 // Enhanced Users Management Component
-function UsersManagement() {
+function UsersManagement({ onUserUpdated }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -274,6 +380,26 @@ function UsersManagement() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [newRole, setNewRole] = useState('user');
   const [filter, setFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [usersPage, setUsersPage] = useState(1);
+
+  // Ban / Unban Dialog States (User-visible reason + confidential internal notes)
+  const [showBanDialog, setShowBanDialog] = useState(false);
+  const [userToBan, setUserToBan] = useState(null);
+  const [userVisibleBanReason, setUserVisibleBanReason] = useState('');
+  const [banAdminNotes, setBanAdminNotes] = useState('');
+  const [banLoading, setBanLoading] = useState(false);
+
+  const [showUnbanDialog, setShowUnbanDialog] = useState(false);
+  const [userToUnban, setUserToUnban] = useState(null);
+  const [unbanLoading, setUnbanLoading] = useState(false);
+
+  // Revoke Verification Dialog States
+  const [showRevokeVerificationDialog, setShowRevokeVerificationDialog] = useState(false);
+  const [userToRevokeVerification, setUserToRevokeVerification] = useState(null);
+  const [revokeVerificationReason, setRevokeVerificationReason] = useState('');
+  const [revokeVerificationAdminNotes, setRevokeVerificationAdminNotes] = useState('');
+  const [revokeVerificationLoading, setRevokeVerificationLoading] = useState(false);
 
   // Detail Modal State
   const [showDetailDialog, setShowDetailDialog] = useState(false);
@@ -315,29 +441,81 @@ function UsersManagement() {
     }
   };
 
-  const handleBan = async (userId) => {
-    setActionLoading(userId);
+  const openBanDialog = (user) => {
+    setUserToBan(user);
+    setUserVisibleBanReason('Account suspended by administrator for violation of platform terms of service.');
+    setBanAdminNotes('');
+    setShowBanDialog(true);
+  };
+
+  const confirmBan = async () => {
+    if (!userToBan) return;
+    setBanLoading(true);
     try {
-      await api.post(`/admin/users/${userId}/ban`);
-      toast.success('User banned');
+      await api.post(`/admin/users/${userToBan.id}/ban`, {
+        user_visible_reason: userVisibleBanReason.trim() || 'Account suspended by administrator',
+        admin_notes: banAdminNotes.trim(),
+        reason: userVisibleBanReason.trim() || 'Account suspended by administrator'
+      });
+      toast.success(`User ${userToBan.name} has been banned`);
+      setShowBanDialog(false);
+      setUserToBan(null);
       fetchUsers();
+      if (onUserUpdated) onUserUpdated();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to ban user');
     } finally {
-      setActionLoading(null);
+      setBanLoading(false);
     }
   };
 
-  const handleUnban = async (userId) => {
-    setActionLoading(userId);
+  const openUnbanDialog = (user) => {
+    setUserToUnban(user);
+    setShowUnbanDialog(true);
+  };
+
+  const confirmUnban = async () => {
+    if (!userToUnban) return;
+    setUnbanLoading(true);
     try {
-      await api.post(`/admin/users/${userId}/unban`);
-      toast.success('User unbanned');
+      await api.post(`/admin/users/${userToUnban.id}/unban`);
+      toast.success(`User ${userToUnban.name} has been unbanned`);
+      setShowUnbanDialog(false);
+      setUserToUnban(null);
       fetchUsers();
+      if (onUserUpdated) onUserUpdated();
     } catch (error) {
       toast.error('Failed to unban user');
     } finally {
-      setActionLoading(null);
+      setUnbanLoading(false);
+    }
+  };
+
+  const openRevokeVerificationDialog = (user) => {
+    setUserToRevokeVerification(user);
+    setRevokeVerificationReason('Identity verification revoked due to policy violation or unverified document update.');
+    setRevokeVerificationAdminNotes('');
+    setShowRevokeVerificationDialog(true);
+  };
+
+  const confirmRevokeVerification = async () => {
+    if (!userToRevokeVerification) return;
+    setRevokeVerificationLoading(true);
+    try {
+      await api.post(`/admin/users/${userToRevokeVerification.id}/revoke-verification`, {
+        user_visible_reason: revokeVerificationReason.trim() || 'Seller verification revoked by admin',
+        admin_notes: revokeVerificationAdminNotes.trim(),
+        reason: revokeVerificationReason.trim()
+      });
+      toast.success(`Verification revoked for ${userToRevokeVerification.name}`);
+      setShowRevokeVerificationDialog(false);
+      setUserToRevokeVerification(null);
+      fetchUsers();
+      if (onUserUpdated) onUserUpdated();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to revoke verification');
+    } finally {
+      setRevokeVerificationLoading(false);
     }
   };
 
@@ -348,6 +526,7 @@ function UsersManagement() {
       await api.delete(`/admin/users/${userId}`);
       toast.success('User deleted');
       fetchUsers();
+      if (onUserUpdated) onUserUpdated();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete user');
     } finally {
@@ -361,6 +540,7 @@ function UsersManagement() {
       await api.post(`/admin/users/${userId}/verify`);
       toast.success('User verified');
       fetchUsers();
+      if (onUserUpdated) onUserUpdated();
     } catch (error) {
       toast.error('Failed to verify user');
     } finally {
@@ -376,6 +556,7 @@ function UsersManagement() {
       toast.success(`Role changed to ${newRole}`);
       setShowRoleDialog(false);
       fetchUsers();
+      if (onUserUpdated) onUserUpdated();
     } catch (error) {
       toast.error('Failed to change role');
     } finally {
@@ -391,6 +572,8 @@ function UsersManagement() {
     
     const confirmMsg = action === 'delete' 
       ? `Are you sure you want to permanently delete ${selectedUsers.length} users?`
+      : action === 'ban'
+      ? `Are you sure you want to ban ${selectedUsers.length} users?`
       : `Are you sure you want to ${action} ${selectedUsers.length} users?`;
     
     if (!window.confirm(confirmMsg)) return;
@@ -399,11 +582,13 @@ function UsersManagement() {
       const response = await api.post('/admin/users/bulk', {
         user_ids: selectedUsers,
         action: action,
-        role: action === 'change_role' ? newRole : undefined
+        role: action === 'change_role' ? newRole : undefined,
+        reason: action === 'ban' ? 'Bulk suspension by administrator' : undefined
       });
       toast.success(`${response.data.success} users updated`);
       setSelectedUsers([]);
       fetchUsers();
+      if (onUserUpdated) onUserUpdated();
     } catch (error) {
       toast.error('Bulk action failed');
     }
@@ -427,15 +612,38 @@ function UsersManagement() {
   };
 
   const getFilteredUsers = () => {
-    if (filter === 'all') return users;
-    if (filter === 'banned') return users.filter(u => u.is_suspended);
-    if (filter === 'verified') return users.filter(u => u.is_seller_verified);
-    if (filter === 'admin') return users.filter(u => u.role === 'admin');
-    if (filter === 'seller') return users.filter(u => u.role === 'seller');
-    return users;
+    let result = users;
+
+    if (filter === 'banned') {
+      result = result.filter(u => u.is_suspended || u.is_banned);
+    } else if (filter === 'active') {
+      result = result.filter(u => !u.is_suspended && !u.is_banned);
+    } else if (filter === 'verified') {
+      result = result.filter(u => u.is_seller_verified);
+    } else if (filter === 'pending_kyc') {
+      result = result.filter(u => u.verification_status === 'pending');
+    } else if (filter === 'admin') {
+      result = result.filter(u => u.role === 'admin');
+    } else if (filter === 'seller') {
+      result = result.filter(u => u.role === 'seller');
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(u => 
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.phone && u.phone.includes(q)) ||
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.id && u.id.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
@@ -452,22 +660,40 @@ function UsersManagement() {
   }
 
   const filteredUsers = getFilteredUsers();
+  const paginatedUsers = filteredUsers.slice((usersPage - 1) * 20, usersPage * 20);
 
   return (
-    <div data-testid="admin-users">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <h2 className="text-xl font-bold">User Management</h2>
-        <div className="flex gap-2">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-[130px]">
+    <div data-testid="admin-users" className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold">User Management</h2>
+          <p className="text-xs text-muted-foreground">Manage user accounts, ban enforcement, permissions, and verification status</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Search Box */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, email, phone..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setUsersPage(1); }}
+              className="pl-9 h-9 text-xs"
+            />
+          </div>
+
+          {/* Filter Select */}
+          <Select value={filter} onValueChange={(val) => { setFilter(val); setUsersPage(1); }}>
+            <SelectTrigger className="w-[140px] h-9 text-xs">
               <SelectValue placeholder="Filter" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Users</SelectItem>
-              <SelectItem value="banned">Banned</SelectItem>
-              <SelectItem value="verified">Verified</SelectItem>
-              <SelectItem value="admin">Admins</SelectItem>
-              <SelectItem value="seller">Sellers</SelectItem>
+              <SelectItem value="all">All Users ({users.length})</SelectItem>
+              <SelectItem value="active">Active ({users.filter(u => !u.is_suspended && !u.is_banned).length})</SelectItem>
+              <SelectItem value="banned">Banned ({users.filter(u => u.is_suspended || u.is_banned).length})</SelectItem>
+              <SelectItem value="verified">Verified Sellers ({users.filter(u => u.is_seller_verified).length})</SelectItem>
+              <SelectItem value="pending_kyc">Pending KYC ({users.filter(u => u.verification_status === 'pending').length})</SelectItem>
+              <SelectItem value="admin">Admins ({users.filter(u => u.role === 'admin').length})</SelectItem>
+              <SelectItem value="seller">Sellers ({users.filter(u => u.role === 'seller').length})</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -475,14 +701,14 @@ function UsersManagement() {
 
       {/* Bulk Actions */}
       {selectedUsers.length > 0 && (
-        <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 mb-4 flex flex-wrap items-center gap-2">
+        <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{selectedUsers.length} selected</span>
           <div className="flex gap-2 ml-auto">
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction('ban')}>
-              <Ban className="w-4 h-4 mr-1" /> Ban
+            <Button size="sm" variant="outline" className="text-amber-400 border-amber-500/30 hover:bg-amber-500/10" onClick={() => handleBulkAction('ban')}>
+              <Ban className="w-4 h-4 mr-1" /> Ban Selected
             </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction('unban')}>
-              <UserCheck className="w-4 h-4 mr-1" /> Unban
+            <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10" onClick={() => handleBulkAction('unban')}>
+              <UserCheck className="w-4 h-4 mr-1" /> Unban Selected
             </Button>
             <Button size="sm" variant="outline" onClick={() => handleBulkAction('verify')}>
               <ShieldCheck className="w-4 h-4 mr-1" /> Verify
@@ -494,151 +720,376 @@ function UsersManagement() {
         </div>
       )}
 
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-muted/50">
+            <thead className="bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <tr>
                 <th className="text-left p-4 w-10">
                   <Checkbox
-                    checked={selectedUsers.length === filteredUsers.length && filteredUsers.length > 0}
+                    checked={selectedUsers.length === paginatedUsers.length && paginatedUsers.length > 0}
                     onCheckedChange={toggleSelectAll}
                   />
                 </th>
-                <th className="text-left p-4 font-medium">User</th>
-                <th className="text-left p-4 font-medium">Role</th>
-                <th className="text-left p-4 font-medium">Status</th>
-                <th className="text-left p-4 font-medium">Joined</th>
-                <th className="text-left p-4 font-medium">Actions</th>
+                <th className="text-left p-4">User</th>
+                <th className="text-left p-4">Role</th>
+                <th className="text-left p-4">Status</th>
+                <th className="text-left p-4">Joined</th>
+                <th className="text-right p-4">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {filteredUsers.map((user) => (
-                <tr key={user.id} className="border-t border-border">
-                  <td className="p-4">
-                    <Checkbox
-                      checked={selectedUsers.includes(user.id)}
-                      onCheckedChange={() => toggleSelectUser(user.id)}
-                      disabled={user.role === 'admin'}
-                    />
-                  </td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-3">
-                      <Avatar
-                        src={user.avatar}
-                        name={user.name}
-                        size="md"
-                        className="w-10 h-10 border border-border"
+            <tbody className="divide-y divide-border">
+              {paginatedUsers.map((user) => {
+                const isBanned = Boolean(user.is_suspended || user.is_banned);
+                return (
+                  <tr key={user.id} className={`hover:bg-muted/30 transition-colors ${isBanned ? 'bg-red-500/5' : ''}`}>
+                    <td className="p-4">
+                      <Checkbox
+                        checked={selectedUsers.includes(user.id)}
+                        onCheckedChange={() => toggleSelectUser(user.id)}
+                        disabled={user.role === 'admin'}
                       />
-                      <div>
-                        <p className="font-medium">{user.name}</p>
-                        <p className="text-sm text-muted-foreground">{user.email || user.phone}</p>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <Avatar
+                          src={user.avatar}
+                          name={user.name}
+                          size="md"
+                          className="w-10 h-10 border border-border shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-semibold text-sm text-foreground truncate">{user.name}</p>
+                            {user.username && (
+                              <span className="text-xs font-mono text-muted-foreground">@{user.username}</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{user.email || user.phone || 'No contact'}</p>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <Badge 
-                      variant="outline" 
-                      className={
-                        user.role === 'admin' ? 'bg-violet-500/10 text-violet-500' :
-                        user.role === 'seller' ? 'bg-cyan-500/10 text-cyan-500' : ''
-                      }
-                    >
-                      {user.role}
-                    </Badge>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-wrap gap-1">
-                      {user.is_seller_verified && (
-                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500">Verified</Badge>
-                      )}
-                      {user.is_suspended && (
-                        <Badge variant="outline" className="bg-red-500/10 text-red-500">Banned</Badge>
-                      )}
-                      {!user.is_seller_verified && !user.is_suspended && (
-                        <Badge variant="outline">Active</Badge>
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-4 text-sm text-muted-foreground">
-                    {formatDate(user.created_at)}
-                  </td>
-                  <td className="p-4">
-                    <div className="flex gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => fetchUserDetails(user)}
-                        title="View Full Details"
+                    </td>
+                    <td className="p-4">
+                      <Badge 
+                        variant="outline" 
+                        className={
+                          user.role === 'admin' ? 'bg-violet-500/10 text-violet-400 border-violet-500/30' :
+                          user.role === 'seller' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' : ''
+                        }
                       >
-                        <Eye className="w-4 h-4 text-violet-500" />
-                      </Button>
-                      
-                      {user.role !== 'admin' && (
-                        <>
-                          {!user.is_seller_verified && (
+                        {user.role}
+                      </Badge>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1 items-start">
+                        {isBanned ? (
+                          <>
+                            <Badge variant="outline" className="bg-red-500/15 text-red-400 border-red-500/30 font-bold flex items-center gap-1">
+                              <Ban className="w-3 h-3" /> Banned
+                            </Badge>
+                            {user.ban_reason && (
+                              <span className="text-[11px] text-muted-foreground truncate max-w-[160px]" title={user.ban_reason}>
+                                {user.ban_reason}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-medium flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
+                            </Badge>
+                            {user.is_seller_verified && (
+                              <Badge variant="outline" className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                                Verified Seller
+                              </Badge>
+                            )}
+                            {user.verification_status === 'pending' && (
+                              <Badge variant="outline" className="bg-amber-500/15 text-amber-400 border-amber-500/30">
+                                KYC Pending
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDate(user.created_at)}
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => fetchUserDetails(user)}
+                          title="View Full Details"
+                          className="h-8 w-8 p-0"
+                        >
+                          <Eye className="w-4 h-4 text-violet-400" />
+                        </Button>
+                        
+                        {user.role !== 'admin' && (
+                          <>
+                            {isBanned ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openUnbanDialog(user)}
+                                disabled={actionLoading === user.id}
+                                title="Unban User"
+                                className="h-8 w-8 p-0 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                              >
+                                <UserCheck className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openBanDialog(user)}
+                                disabled={actionLoading === user.id}
+                                title="Ban / Suspend User"
+                                className="h-8 w-8 p-0 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                              >
+                                <Ban className="w-4 h-4" />
+                              </Button>
+                            )}
+
+                            {!user.is_seller_verified ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleVerify(user.id)}
+                                disabled={actionLoading === user.id}
+                                title="Verify User"
+                                className="h-8 w-8 p-0 text-emerald-400 hover:text-emerald-300"
+                              >
+                                <ShieldCheck className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openRevokeVerificationDialog(user)}
+                                disabled={actionLoading === user.id}
+                                title="Revoke Verification"
+                                className="h-8 w-8 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                              >
+                                <ShieldOff className="w-4 h-4" />
+                              </Button>
+                            )}
+
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleVerify(user.id)}
-                              disabled={actionLoading === user.id}
-                              title="Verify User"
+                              onClick={() => {
+                                setSelectedUser(user);
+                                setNewRole(user.role);
+                                setShowRoleDialog(true);
+                              }}
+                              title="Change Role"
+                              className="h-8 w-8 p-0"
                             >
-                              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                              <Edit className="w-4 h-4" />
                             </Button>
-                          )}
-                          {user.is_suspended ? (
+
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleUnban(user.id)}
+                              onClick={() => handleDelete(user.id)}
                               disabled={actionLoading === user.id}
-                              title="Unban User"
+                              title="Delete User"
+                              className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                             >
-                              <UserCheck className="w-4 h-4 text-emerald-500" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleBan(user.id)}
-                              disabled={actionLoading === user.id}
-                              title="Ban User"
-                            >
-                              <Ban className="w-4 h-4 text-amber-500" />
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setSelectedUser(user);
-                              setNewRole(user.role);
-                              setShowRoleDialog(true);
-                            }}
-                            title="Change Role"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDelete(user.id)}
-                            disabled={actionLoading === user.id}
-                            title="Delete User"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-500" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredUsers.length === 0 && (
+                <tr>
+                  <td colSpan="6" className="p-8 text-center text-muted-foreground text-sm">
+                    No users matching the current filter or search criteria.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          currentPage={usersPage}
+          totalPages={Math.ceil(filteredUsers.length / 20)}
+          totalRecords={filteredUsers.length}
+          pageSize={20}
+          onPageChange={setUsersPage}
+        />
       </div>
+
+      {/* Ban User Confirmation Dialog (User-Visible Reason + Confidential Admin Notes) */}
+      <Dialog open={showBanDialog} onOpenChange={setShowBanDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <Ban className="w-5 h-5" /> Ban / Suspend User
+            </DialogTitle>
+            <DialogDescription>
+              Suspending this account will immediately revoke access, reject future logins with the ban reason, and block protected features.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="bg-muted/50 rounded-lg p-3 flex items-center gap-3">
+              <Avatar src={userToBan?.avatar} name={userToBan?.name} size="md" className="w-10 h-10 border border-border" />
+              <div>
+                <p className="font-semibold text-sm">{userToBan?.name}</p>
+                <p className="text-xs text-muted-foreground">{userToBan?.email || userToBan?.phone}</p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ban-user-reason" className="text-xs font-semibold text-red-400">
+                User-Facing Ban Reason * (Shown to user when login is rejected)
+              </Label>
+              <Textarea
+                id="ban-user-reason"
+                placeholder="Enter suspension reason visible to the user upon login attempt..."
+                value={userVisibleBanReason}
+                onChange={(e) => setUserVisibleBanReason(e.target.value)}
+                rows={2}
+                className="text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ban-admin-notes" className="text-xs font-semibold text-muted-foreground flex items-center justify-between">
+                <span>Internal Confidential Notes</span>
+                <span className="text-[10px] text-amber-400 font-mono">🔒 Admin Only</span>
+              </Label>
+              <Textarea
+                id="ban-admin-notes"
+                placeholder="Internal details, evidence links, or moderator observations..."
+                value={banAdminNotes}
+                onChange={(e) => setBanAdminNotes(e.target.value)}
+                rows={2}
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowBanDialog(false)} disabled={banLoading}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmBan}
+              disabled={banLoading || !userVisibleBanReason.trim()}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold"
+            >
+              {banLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Ban className="w-4 h-4 mr-2" />}
+              Confirm Ban
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke User Verification Dialog */}
+      <Dialog open={showRevokeVerificationDialog} onOpenChange={setShowRevokeVerificationDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-400">
+              <ShieldOff className="w-5 h-5" /> Revoke Seller Verification
+            </DialogTitle>
+            <DialogDescription>
+              Revoking verification will remove verified seller badges and privileges from <strong className="text-foreground">{userToRevokeVerification?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="revoke-reason" className="text-xs font-semibold text-rose-400">
+                User-Facing Revocation Reason *
+              </Label>
+              <Textarea
+                id="revoke-reason"
+                placeholder="Explain to user why verification was revoked..."
+                value={revokeVerificationReason}
+                onChange={(e) => setRevokeVerificationReason(e.target.value)}
+                rows={2}
+                className="text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="revoke-admin-notes" className="text-xs font-semibold text-muted-foreground flex items-center justify-between">
+                <span>Internal Confidential Notes</span>
+                <span className="text-[10px] text-amber-400 font-mono">🔒 Admin Only</span>
+              </Label>
+              <Textarea
+                id="revoke-admin-notes"
+                placeholder="Internal moderation notes regarding this revocation..."
+                value={revokeVerificationAdminNotes}
+                onChange={(e) => setRevokeVerificationAdminNotes(e.target.value)}
+                rows={2}
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowRevokeVerificationDialog(false)} disabled={revokeVerificationLoading}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmRevokeVerification}
+              disabled={revokeVerificationLoading || !revokeVerificationReason.trim()}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+            >
+              {revokeVerificationLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldOff className="w-4 h-4 mr-2" />}
+              Confirm Revocation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unban User Confirmation Dialog */}
+      <Dialog open={showUnbanDialog} onOpenChange={setShowUnbanDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-400">
+              <UserCheck className="w-5 h-5" /> Unban & Restore Access
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to lift the suspension for this user? They will be able to log in and use their account normally with all past data preserved.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-muted/50 rounded-lg p-3 flex items-center gap-3 my-2">
+            <Avatar src={userToUnban?.avatar} name={userToUnban?.name} size="md" className="w-10 h-10 border border-border" />
+            <div>
+              <p className="font-semibold text-sm">{userToUnban?.name}</p>
+              <p className="text-xs text-muted-foreground">{userToUnban?.email || userToUnban?.phone}</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowUnbanDialog(false)} disabled={unbanLoading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmUnban}
+              disabled={unbanLoading}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+            >
+              {unbanLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UserCheck className="w-4 h-4 mr-2" />}
+              Confirm Unban
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* User Detail Modal */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
@@ -657,12 +1108,42 @@ function UsersManagement() {
             </div>
             
             <TabsContent value="overview" className="p-4 space-y-6">
+              {/* Ban Banner if Banned */}
+              {(userDetail?.is_suspended || userDetail?.is_banned) && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                      <Ban className="w-4 h-4" /> Account Suspended / Banned
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      <span className="font-semibold text-foreground">Reason:</span> {userDetail.ban_reason || 'Policy violation'}
+                    </p>
+                    {userDetail.banned_at && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Banned on: {new Date(userDetail.banned_at).toLocaleString('en-IN')}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shrink-0"
+                    onClick={() => {
+                      setShowDetailDialog(false);
+                      openUnbanDialog(userDetail);
+                    }}
+                  >
+                    <UserCheck className="w-4 h-4 mr-1" /> Unban User
+                  </Button>
+                </div>
+              )}
+
               <div className="flex flex-col md:flex-row gap-6">
                 <Avatar
                   src={userDetail?.avatar}
                   name={userDetail?.name}
                   size="4xl"
-                  className="w-32 h-32 rounded-2xl border border-border text-5xl"
+                  className="w-32 h-32 rounded-2xl border border-border text-5xl shrink-0"
                 />
                 <div className="flex-1 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -672,25 +1153,29 @@ function UsersManagement() {
                     </div>
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider">Username</Label>
-                      <p className="font-mono text-violet-500 font-bold">@{userDetail?.username}</p>
+                      <p className="font-mono text-violet-500 font-bold">@{userDetail?.username || 'none'}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider">Email Address</Label>
-                      <p>{userDetail?.email || 'N/A'}</p>
+                      <p className="text-sm">{userDetail?.email || 'N/A'}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider">Phone Number</Label>
-                      <p>{userDetail?.phone || 'N/A'}</p>
+                      <p className="text-sm font-mono">{userDetail?.phone || 'N/A'}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider">Location</Label>
-                      <p>{userDetail?.location || 'Not set'}</p>
+                      <p className="text-sm">{userDetail?.location || 'Not set'}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider">Account Status</Label>
-                      <div className="flex gap-2 items-center">
+                      <div className="flex gap-2 items-center flex-wrap mt-1">
                         <Badge variant={userDetail?.role === 'admin' ? 'default' : 'outline'}>{userDetail?.role}</Badge>
-                        {userDetail?.is_suspended && <Badge variant="destructive">Suspended</Badge>}
+                        {(userDetail?.is_suspended || userDetail?.is_banned) ? (
+                          <Badge variant="destructive">Suspended</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">Active</Badge>
+                        )}
                         {userDetail?.is_seller_verified && <Badge className="bg-emerald-500">Verified Seller</Badge>}
                       </div>
                     </div>
@@ -715,7 +1200,7 @@ function UsersManagement() {
                       <tr key={listing.id} className="border-t border-border">
                         <td className="p-3">
                           <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded bg-muted overflow-hidden">
+                             <div className="w-8 h-8 rounded bg-muted overflow-hidden shrink-0">
                                <img src={listing.images?.[0] || ''} alt="" className="w-full h-full object-cover" />
                              </div>
                              <span className="font-medium truncate max-w-[200px]">{listing.title}</span>
@@ -771,8 +1256,20 @@ function UsersManagement() {
             </TabsContent>
           </Tabs>
           
-          <DialogFooter className="mt-6">
-            <Button variant="outline" onClick={() => setShowDetailDialog(false)}>Close</Button>
+          <DialogFooter className="mt-6 flex justify-between sm:justify-between items-center">
+            {userDetail?.role !== 'admin' && !(userDetail?.is_suspended || userDetail?.is_banned) && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  setShowDetailDialog(false);
+                  openBanDialog(userDetail);
+                }}
+              >
+                <Ban className="w-4 h-4 mr-1" /> Ban User
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setShowDetailDialog(false)} className="ml-auto">Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -816,35 +1313,128 @@ function UsersManagement() {
 
 // Enhanced Listings Management Component
 function ListingsManagement() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [filter, setFilter] = useState(searchParams.get('status') || 'all');
+  const [sort, setSort] = useState(searchParams.get('sort') || 'newest');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categories, setCategories] = useState([]);
   const [selectedListings, setSelectedListings] = useState([]);
   const [deletingListing, setDeletingListing] = useState(null);
   const [deletionReason, setDeletionReason] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [listingsPage, setListingsPage] = useState(1);
+  const [totalListings, setTotalListings] = useState(0);
+  const [inspectListing, setInspectListing] = useState(null);
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    pending_payment: 0,
+    expired: 0,
+    sold: 0,
+    deleted: 0,
+    archived: 0,
+    total_views: 0,
+    viewed_listings: 0
+  });
 
+  // Sync state if URL query params change (e.g. navigation from Overview cards)
   useEffect(() => {
-    fetchListings();
-  }, [filter]);
+    const urlStatus = searchParams.get('status');
+    const urlSort = searchParams.get('sort');
+    if (urlStatus && urlStatus !== filter) {
+      setFilter(urlStatus);
+      setListingsPage(1);
+    }
+    if (urlSort && urlSort !== sort) {
+      setSort(urlSort);
+      setListingsPage(1);
+    }
+  }, [searchParams]);
 
-  const fetchListings = async () => {
+  const fetchStats = useCallback(async () => {
     try {
-      const params = filter !== 'all' ? `?status=${filter}` : '';
-      const response = await api.get(`/admin/listings${params}`);
-      setListings(response.data);
+      setStatsLoading(true);
+      const res = await api.get('/admin/listings/stats');
+      setStats(res.data);
+    } catch (err) {
+      console.error('Failed to fetch listing stats:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await api.get('/categories');
+      if (Array.isArray(res.data)) {
+        setCategories(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch categories:', err);
+    }
+  }, []);
+
+  const fetchListings = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (filter !== 'all') params.append('status', filter);
+      if (categoryFilter !== 'all') params.append('category_id', categoryFilter);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      if (sort && sort !== 'newest') params.append('sort', sort);
+      params.append('page', String(listingsPage));
+      params.append('limit', '20');
+
+      const response = await api.get(`/admin/listings?${params.toString()}`);
+      const rawData = response.data;
+
+      if (Array.isArray(rawData)) {
+        setListings(rawData);
+        setTotalListings(rawData.length);
+      } else {
+        const items = rawData.listings || rawData.items || [];
+        setListings(items);
+        setTotalListings(rawData.total !== undefined ? rawData.total : items.length);
+      }
     } catch (error) {
       console.error('Failed to fetch listings:', error);
+      toast.error('Failed to load listings data');
+      setListings([]);
+      setTotalListings(0);
     } finally {
       setLoading(false);
     }
+  }, [filter, categoryFilter, searchQuery, sort, listingsPage]);
+
+  useEffect(() => {
+    fetchStats();
+    fetchCategories();
+  }, [fetchStats, fetchCategories]);
+
+  useEffect(() => {
+    fetchListings();
+  }, [fetchListings]);
+
+  const handleCardFilterSelect = (newStatus, newSort = 'newest') => {
+    setFilter(newStatus);
+    setSort(newSort);
+    setListingsPage(1);
+    const newParams = {};
+    if (newStatus !== 'all') newParams.status = newStatus;
+    if (newSort !== 'newest') newParams.sort = newSort;
+    setSearchParams(newParams);
   };
 
   const updateListing = async (listingId, data) => {
     try {
       await api.put(`/admin/listings/${listingId}`, data);
       fetchListings();
-      toast.success('Listing updated');
+      fetchStats();
+      toast.success('Listing updated successfully');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update listing');
     }
@@ -861,6 +1451,7 @@ function ListingsManagement() {
       setDeletingListing(null);
       setDeletionReason('');
       fetchListings();
+      fetchStats();
     } catch (error) {
       toast.error('Failed to delete listing');
     } finally {
@@ -879,9 +1470,10 @@ function ListingsManagement() {
         listing_ids: selectedListings,
         action: action
       });
-      toast.success(`${response.data.success} listings updated`);
+      toast.success(`${response.data.success || selectedListings.length} listings updated`);
       setSelectedListings([]);
       fetchListings();
+      fetchStats();
     } catch (error) {
       toast.error('Bulk action failed');
     }
@@ -895,22 +1487,50 @@ function ListingsManagement() {
     );
   };
 
+  const toggleSelectAllPage = () => {
+    if (selectedListings.length === listings.length && listings.length > 0) {
+      setSelectedListings([]);
+    } else {
+      setSelectedListings(listings.map(l => l.id));
+    }
+  };
+
+  const handleOpenInspect = async (listing) => {
+    setInspectListing(listing);
+    try {
+      await api.post(`/admin/listings/${listing.id}/view`);
+      fetchStats();
+    } catch (err) {
+      // Non-blocking view tracking
+    }
+  };
+
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
       maximumFractionDigits: 0,
-    }).format(price);
+    }).format(price || 0);
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
   };
 
   const statusColors = {
-    active: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-    pending: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-    pending_payment: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
-    rejected: 'bg-red-500/10 text-red-500 border-red-500/20',
-    sold: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
-    archived: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
-    deleted: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
+    active: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    pending: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    pending_payment: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
+    rejected: 'bg-red-500/10 text-red-400 border-red-500/30',
+    sold: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
+    expired: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+    archived: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    deleted: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30',
   };
 
   const handleRestoreListing = async (listingId) => {
@@ -919,6 +1539,7 @@ function ListingsManagement() {
       const restoredStatus = res.data?.listing?.status || 'active';
       toast.success(`Listing restored to "${restoredStatus}" status`);
       fetchListings();
+      fetchStats();
     } catch (err) {
       toast.error('Failed to restore listing');
     }
@@ -929,206 +1550,774 @@ function ListingsManagement() {
       await api.post(`/admin/listings/${listingId}/archive`);
       toast.success('Listing archived');
       fetchListings();
+      fetchStats();
     } catch (err) {
       toast.error('Failed to archive listing');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
-      </div>
-    );
-  }
+  const resetAllFilters = () => {
+    setFilter('all');
+    setSort('newest');
+    setCategoryFilter('all');
+    setSearchQuery('');
+    setListingsPage(1);
+    setSearchParams({});
+  };
+
+  const totalPages = Math.ceil(totalListings / 20) || 1;
 
   return (
-    <div data-testid="admin-listings">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-        <h2 className="text-xl font-bold">Listing Management</h2>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Listings</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="pending_payment">Pending Payment</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-            <SelectItem value="sold">Sold</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
-            <SelectItem value="deleted">Deleted (Soft-Deleted)</SelectItem>
-          </SelectContent>
-        </Select>
+    <div data-testid="admin-listings" className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-foreground">Listing Management</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Admin lifecycle control, 90-day validity tracking, soft-delete recovery, and marketplace compliance
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { fetchStats(); fetchListings(); }}
+            className="text-xs font-semibold h-9"
+          >
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Refresh Data
+          </Button>
+          <Link to="/post">
+            <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs h-9">
+              <Plus className="w-3.5 h-3.5 mr-1.5" /> Post as Admin
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      {/* Bulk Actions */}
+      {/* Interactive Summary / Stat Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* Total Listings */}
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleCardFilterSelect('all', 'newest')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardFilterSelect('all', 'newest'); }}
+          aria-label="Filter to All Listings"
+          className={`bg-card border rounded-xl p-3.5 flex flex-col justify-between transition-all shadow-sm cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+            filter === 'all' && sort !== 'views_desc' 
+              ? 'border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/40' 
+              : 'border-border hover:border-violet-500/40 hover:bg-muted/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">Total Listings</span>
+            <div className="w-8 h-8 rounded-lg bg-violet-600/10 text-violet-400 flex items-center justify-center border border-violet-500/20 group-hover:scale-105 transition-transform">
+              <Package className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black font-mono text-foreground">
+              {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : stats.total}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">All registered posts</p>
+          </div>
+        </div>
+
+        {/* Active Listings */}
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleCardFilterSelect('active', 'newest')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardFilterSelect('active', 'newest'); }}
+          aria-label="Filter to Active Listings"
+          className={`bg-card border rounded-xl p-3.5 flex flex-col justify-between transition-all shadow-sm cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 ${
+            filter === 'active' && sort !== 'views_desc' 
+              ? 'border-emerald-500/60 bg-emerald-500/10 ring-1 ring-emerald-500/40' 
+              : 'border-border hover:border-emerald-500/40 hover:bg-muted/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-emerald-400 transition-colors">Active</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20 group-hover:scale-105 transition-transform">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black font-mono text-emerald-400">
+              {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : stats.active}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Live on marketplace</p>
+          </div>
+        </div>
+
+        {/* Read / Viewed Listings (Sorts Most Viewed) */}
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleCardFilterSelect('all', 'views_desc')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardFilterSelect('all', 'views_desc'); }}
+          aria-label="Sort by Most Viewed Listings"
+          className={`bg-card border rounded-xl p-3.5 flex flex-col justify-between transition-all shadow-sm cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 ${
+            sort === 'views_desc' 
+              ? 'border-cyan-500/60 bg-cyan-500/10 ring-1 ring-cyan-500/40' 
+              : 'border-border hover:border-cyan-500/40 hover:bg-muted/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-cyan-400 transition-colors">Viewed (Sort)</span>
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/20 group-hover:scale-105 transition-transform">
+              <Eye className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black font-mono text-cyan-400">
+              {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : stats.viewed_listings}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 truncate" title={`${(stats.total_views || 0).toLocaleString()} Total Views`}>
+              {(stats.total_views || 0).toLocaleString()} views recorded
+            </p>
+          </div>
+        </div>
+
+        {/* Expired Listings */}
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleCardFilterSelect('expired', 'newest')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardFilterSelect('expired', 'newest'); }}
+          aria-label="Filter to Expired Listings"
+          className={`bg-card border rounded-xl p-3.5 flex flex-col justify-between transition-all shadow-sm cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+            filter === 'expired' 
+              ? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500/40' 
+              : 'border-border hover:border-amber-500/40 hover:bg-muted/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-amber-400 transition-colors">Expired</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20 group-hover:scale-105 transition-transform">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black font-mono text-amber-400">
+              {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : stats.expired}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">&gt;90 days validity</p>
+          </div>
+        </div>
+
+        {/* Sold Listings */}
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleCardFilterSelect('sold', 'newest')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardFilterSelect('sold', 'newest'); }}
+          aria-label="Filter to Sold Listings"
+          className={`bg-card border rounded-xl p-3.5 flex flex-col justify-between transition-all shadow-sm cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 ${
+            filter === 'sold' 
+              ? 'border-violet-500/60 bg-violet-500/10 ring-1 ring-violet-500/40' 
+              : 'border-border hover:border-violet-500/40 hover:bg-muted/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-violet-400 transition-colors">Sold</span>
+            <div className="w-8 h-8 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center border border-violet-500/20 group-hover:scale-105 transition-transform">
+              <ShoppingBag className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black font-mono text-violet-400">
+              {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : stats.sold}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Completed swaps</p>
+          </div>
+        </div>
+
+        {/* Soft-Deleted Listings */}
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleCardFilterSelect('deleted', 'newest')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardFilterSelect('deleted', 'newest'); }}
+          aria-label="Filter to Soft-Deleted Listings"
+          className={`bg-card border rounded-xl p-3.5 flex flex-col justify-between transition-all shadow-sm cursor-pointer select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 ${
+            filter === 'deleted' 
+              ? 'border-red-500/60 bg-red-500/10 ring-1 ring-red-500/40' 
+              : 'border-border hover:border-red-500/40 hover:bg-muted/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-red-400 transition-colors">Deleted</span>
+            <div className="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center border border-red-500/20 group-hover:scale-105 transition-transform">
+              <Trash2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black font-mono text-red-400">
+              {statsLoading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : stats.deleted}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Soft-deleted / Archival</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter & Search Toolbar */}
+      <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between shadow-sm">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by title, seller, ID, location..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setListingsPage(1);
+            }}
+            className="pl-9 h-9 text-xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(''); setListingsPage(1); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          {/* Category Filter */}
+          <Select 
+            value={categoryFilter} 
+            onValueChange={(val) => { 
+              setCategoryFilter(val); 
+              setListingsPage(1); 
+            }}
+          >
+            <SelectTrigger className="w-[150px] h-9 text-xs">
+              <SelectValue placeholder="All Categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map((cat) => (
+                <SelectItem key={cat.id || cat.slug} value={cat.id || cat.slug}>
+                  {cat.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Status Filter */}
+          <Select 
+            value={filter} 
+            onValueChange={(val) => { 
+              setFilter(val); 
+              setListingsPage(1); 
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                if (val === 'all') next.delete('status');
+                else next.set('status', val);
+                return next;
+              });
+            }}
+          >
+            <SelectTrigger className="w-[150px] h-9 text-xs">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses ({stats.total || 0})</SelectItem>
+              <SelectItem value="active">Active ({stats.active || 0})</SelectItem>
+              <SelectItem value="pending_payment">Pending Payment ({stats.pending_payment || 0})</SelectItem>
+              <SelectItem value="expired">Expired ({stats.expired || 0})</SelectItem>
+              <SelectItem value="sold">Sold ({stats.sold || 0})</SelectItem>
+              <SelectItem value="archived">Archived ({stats.archived || 0})</SelectItem>
+              <SelectItem value="deleted">Deleted (Soft) ({stats.deleted || 0})</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Sort Selector */}
+          <Select
+            value={sort}
+            onValueChange={(val) => {
+              setSort(val);
+              setListingsPage(1);
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                if (val === 'newest') next.delete('sort');
+                else next.set('sort', val);
+                return next;
+              });
+            }}
+          >
+            <SelectTrigger className="w-[150px] h-9 text-xs">
+              <SelectValue placeholder="Sort By" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest First</SelectItem>
+              <SelectItem value="views_desc">Most Viewed</SelectItem>
+              <SelectItem value="price_asc">Price: Low to High</SelectItem>
+              <SelectItem value="price_desc">Price: High to Low</SelectItem>
+              <SelectItem value="oldest">Oldest First</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {(filter !== 'all' || sort !== 'newest' || categoryFilter !== 'all' || searchQuery) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetAllFilters}
+              className="h-9 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Bulk Actions Toolbar */}
       {selectedListings.length > 0 && (
-        <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{selectedListings.length} selected</span>
-          <div className="flex gap-2 ml-auto">
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction('approve')}>
-              <Check className="w-4 h-4 mr-1" /> Approve
+        <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Badge className="bg-violet-600 text-white text-xs px-2 py-0.5 font-bold">
+              {selectedListings.length} Selected
+            </Badge>
+            <span className="text-xs text-muted-foreground">Select bulk action:</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card" onClick={() => handleBulkAction('approve')}>
+              <Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Approve
             </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction('reject')}>
-              <X className="w-4 h-4 mr-1" /> Reject
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card text-red-400" onClick={() => handleBulkAction('reject')}>
+              <X className="w-3.5 h-3.5 mr-1" /> Reject
             </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction('feature')}>
-              <Star className="w-4 h-4 mr-1" /> Feature
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card" onClick={() => handleBulkAction('feature')}>
+              <Star className="w-3.5 h-3.5 mr-1 text-amber-400" /> Feature
             </Button>
-            <Button size="sm" variant="outline" className="text-red-500" onClick={() => handleBulkAction('delete')}>
-              <Trash2 className="w-4 h-4 mr-1" /> Delete
+            <Button size="sm" variant="outline" className="h-8 text-xs bg-card text-red-500 hover:bg-red-500/10" onClick={() => handleBulkAction('delete')}>
+              <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
             </Button>
           </div>
         </div>
       )}
 
-      <div className="space-y-4">
-        {listings.map((listing) => (
-          <div
-            key={listing.id}
-            className={`bg-card border rounded-xl p-4 flex flex-col sm:flex-row gap-4 ${
-              listing.is_deleted ? 'border-red-500/30 bg-red-500/5' : (listing.status === 'sold' ? 'border-cyan-500/30 bg-cyan-500/5' : 'border-border')
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <Checkbox
-                checked={selectedListings.includes(listing.id)}
-                onCheckedChange={() => toggleSelectListing(listing.id)}
-              />
-              <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                <img
-                  src={listing.images?.[0] || 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=200'}
-                  alt={listing.title}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-2 flex-wrap min-w-0">
-                  <h3 className="font-bold truncate text-base">{listing.title}</h3>
-                  {listing.created_by_admin && (
-                    <Badge className="bg-violet-500/10 text-violet-400 border-violet-500/20 text-[11px] font-semibold">
-                      Admin Created (Free)
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {listing.is_deleted && (
-                    <Badge variant="destructive" className="bg-red-500 text-white">DELETED</Badge>
-                  )}
-                  <Badge variant="outline" className={statusColors[listing.status]}>
-                    {listing.status?.replace('_', ' ')}
-                  </Badge>
+      {/* Main Listings Content Area */}
+      <div className="space-y-3">
+        {/* Loading State Skeleton */}
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3, 4, 5].map((skeletonId) => (
+              <div
+                key={skeletonId}
+                className="bg-card border border-border rounded-xl p-4 animate-pulse flex flex-col sm:flex-row gap-4"
+              >
+                <div className="w-20 h-20 rounded-lg bg-muted/60 shrink-0" />
+                <div className="flex-1 space-y-2.5">
+                  <div className="h-4 bg-muted/70 rounded w-1/3" />
+                  <div className="h-5 bg-muted/50 rounded w-1/4" />
+                  <div className="h-3 bg-muted/40 rounded w-1/2" />
                 </div>
               </div>
-              <p className="font-mono text-lg font-bold text-violet-500 mb-1">
-                {formatPrice(listing.price)}
-              </p>
-              <p className="text-sm text-muted-foreground mb-2">
-                Author: <span className="font-medium text-foreground">{listing.seller_name || 'Seller'}</span> • {listing.category_name}
-              </p>
-
-              {listing.is_deleted && (
-                <div className="text-xs bg-red-500/10 text-red-400 p-2.5 rounded-lg mb-2 border border-red-500/20">
-                  <p><strong>Soft-Deleted:</strong> {listing.deleted_at ? new Date(listing.deleted_at).toLocaleString() : 'N/A'}</p>
-                  <p><strong>Reason:</strong> {listing.deletion_reason || 'user_deleted'}</p>
-                  {listing.previous_status && (
-                    <p className="text-muted-foreground mt-0.5"><strong>Previous State:</strong> {listing.previous_status}</p>
-                  )}
-                </div>
-              )}
-
-              {listing.status === 'sold' && !listing.is_deleted && (
-                <div className="text-xs bg-cyan-500/10 text-cyan-400 p-2 rounded-md mb-2">
-                  <p><strong>Sold on:</strong> {listing.sold_at ? new Date(listing.sold_at).toLocaleString() : 'Completed'}</p>
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Link to={`/listing/${listing.id}`} target="_blank">
-                  <Button variant="outline" size="sm">
-                    <Eye className="w-4 h-4 mr-1" />
-                    View
-                  </Button>
-                </Link>
-
-                {listing.is_deleted || listing.status === 'archived' ? (
-                  <Button
-                    size="sm"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={() => handleRestoreListing(listing.id)}
-                  >
-                    <RotateCcw className="w-4 h-4 mr-1" />
-                    Restore Post
-                  </Button>
-                ) : null}
-
-                {listing.status === 'active' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleArchiveListing(listing.id)}
-                  >
-                    Archive
-                  </Button>
-                )}
-
-                {(listing.status === 'pending' || listing.status === 'pending_payment') && (
-                  <>
-                    <Button
-                      size="sm"
-                      className="bg-emerald-600 hover:bg-emerald-700"
-                      onClick={() => updateListing(listing.id, { status: 'active' })}
-                    >
-                      <Check className="w-4 h-4 mr-1" />
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-red-500"
-                      onClick={() => updateListing(listing.id, { status: 'rejected' })}
-                    >
-                      <X className="w-4 h-4 mr-1" />
-                      Reject
-                    </Button>
-                  </>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => updateListing(listing.id, { featured: !listing.featured })}
-                >
-                  <Star className={`w-4 h-4 mr-1 ${listing.featured ? 'fill-amber-500 text-amber-500' : ''}`} />
-                  {listing.featured ? 'Unfeature' : 'Feature'}
-                </Button>
-                {!listing.is_deleted && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-red-500"
-                    onClick={() => {
-                      setDeletingListing(listing);
-                      setDeletionReason('');
-                    }}
-                  >
-                    <Trash2 className="w-4 h-4 mr-1" />
-                    Delete
-                  </Button>
-                )}
-              </div>
-            </div>
+            ))}
           </div>
-        ))}
-        {listings.length === 0 && (
-          <div className="text-center py-12 bg-card rounded-xl border border-border">
-            <Package className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No listings found</p>
+        ) : listings.length === 0 ? (
+          /* Empty State (Only shown when query returns 0 records) */
+          <div className="text-center py-16 px-4 bg-card rounded-2xl border border-border shadow-sm">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-violet-600/10 border border-violet-500/20 flex items-center justify-center text-violet-400 mb-4">
+              <Package className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground">No listings found</h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+              No listings match your current filters or search query. Try broadening your criteria or reset filters.
+            </p>
+            {(filter !== 'all' || categoryFilter !== 'all' || searchQuery) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetAllFilters}
+                className="mt-4 text-xs font-semibold"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Clear All Filters
+              </Button>
+            )}
+          </div>
+        ) : (
+          /* Rendered Listing Rows / Cards */
+          <div className="space-y-3">
+            {listings.map((listing) => {
+              const isSoftDeleted = Boolean(listing.is_deleted || listing.status === 'deleted');
+              const isSold = listing.status === 'sold';
+              const isExpired = Boolean(listing.is_expired || listing.status === 'expired');
+
+              return (
+                <div
+                  key={listing.id}
+                  className={`bg-card border rounded-xl p-4 flex flex-col sm:flex-row gap-4 transition-all hover:border-violet-500/40 shadow-sm ${
+                    isSoftDeleted
+                      ? 'border-red-500/30 bg-red-500/5'
+                      : isSold
+                      ? 'border-cyan-500/30 bg-cyan-500/5'
+                      : isExpired
+                      ? 'border-amber-500/30 bg-amber-500/5'
+                      : 'border-border'
+                  }`}
+                >
+                  {/* Left Selection & Image */}
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={selectedListings.includes(listing.id)}
+                      onCheckedChange={() => toggleSelectListing(listing.id)}
+                      className="mt-1"
+                    />
+                    <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-muted/80 shrink-0 border border-border">
+                      <img
+                        src={listing.images?.[0] || 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=300'}
+                        alt={listing.title}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.src = 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=300';
+                        }}
+                      />
+                      {listing.images?.length > 1 && (
+                        <span className="absolute bottom-1 right-1 bg-black/80 backdrop-blur-sm text-[9px] font-mono text-white px-1 py-0.2 rounded">
+                          +{listing.images.length - 1}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Middle Details */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    {/* Header Line */}
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-foreground text-sm sm:text-base truncate max-w-md">
+                            {listing.title}
+                          </h3>
+                          {listing.created_by_admin && (
+                            <Badge className="bg-violet-500/10 text-violet-300 border-violet-500/30 text-[10px] font-semibold">
+                              Admin Created (Free)
+                            </Badge>
+                          )}
+                          {listing.featured && (
+                            <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/30 text-[10px] font-semibold flex items-center gap-1">
+                              <Star className="w-2.5 h-2.5 fill-amber-400" /> Featured
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[11px] font-mono text-muted-foreground truncate">
+                          ID: <code className="text-zinc-400">{listing.id}</code> &bull; Slug: <span className="text-zinc-400">/{listing.slug}</span>
+                        </p>
+                      </div>
+
+                      {/* Status Badges */}
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                        {isSoftDeleted ? (
+                          <Badge variant="destructive" className="bg-red-600 text-white font-bold text-[10px]">
+                            DELETED
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className={`text-[10px] uppercase font-bold tracking-tight ${statusColors[listing.status] || 'border-border'}`}>
+                            {listing.status?.replace('_', ' ')}
+                          </Badge>
+                        )}
+
+                        {listing.extension_count > 0 && (
+                          <Badge className="bg-purple-500/15 text-purple-300 border-purple-500/30 text-[10px]">
+                            +30d Extended
+                          </Badge>
+                        )}
+
+                        {listing.free_edit_allowed && !listing.free_edit_used && (
+                          <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 text-[10px]">
+                            Free Edit Eligible
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Price & Meta info */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span className="font-mono text-base sm:text-lg font-extrabold text-violet-400">
+                        {formatPrice(listing.price)}
+                      </span>
+                      {listing.price_type && (
+                        <span className="text-[11px] uppercase tracking-wider text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
+                          {listing.price_type}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        Condition: <strong className="text-foreground">{listing.condition || 'Used'}</strong>
+                      </span>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-violet-400" />
+                        <strong className="text-foreground">{listing.location_district || listing.location || 'Kerala'}</strong>
+                      </span>
+                    </div>
+
+                    {/* Author & Lifecycle Timestamps */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Seller: <strong className="text-foreground">{listing.seller_name || listing.seller_username || 'Seller'}</strong></span>
+                      <span>Category: <strong className="text-foreground">{listing.category_name || 'Gaming'}</strong></span>
+                      <span>Published: <strong className="text-foreground">{formatDate(listing.published_at || listing.created_at)}</strong></span>
+                      
+                      {listing.expires_at && (
+                        <span className="flex items-center gap-1">
+                          Expires: <strong className={isExpired ? 'text-red-400' : 'text-foreground'}>
+                            {formatDate(listing.expires_at)}
+                          </strong>
+                          {listing.days_remaining !== undefined && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                              isExpired 
+                                ? 'bg-red-500/20 text-red-300' 
+                                : listing.days_remaining <= 7 
+                                ? 'bg-amber-500/20 text-amber-300 font-bold' 
+                                : 'bg-muted text-zinc-400'
+                            }`}>
+                              {isExpired ? 'Expired' : `${listing.days_remaining}d left`}
+                            </span>
+                          )}
+                        </span>
+                      )}
+
+                      <span className="flex items-center gap-1 font-mono text-cyan-400">
+                        <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                        {(listing.views_count || 0).toLocaleString()} views
+                      </span>
+                    </div>
+
+                    {/* Soft Delete Audit Trail Details */}
+                    {isSoftDeleted && (
+                      <div className="text-xs bg-red-500/10 text-red-400 p-2.5 rounded-lg border border-red-500/20 space-y-0.5">
+                        <p><strong>Soft-Deleted:</strong> {listing.deleted_at ? new Date(listing.deleted_at).toLocaleString() : 'Archived'} by <strong>{listing.deleted_by || 'admin'}</strong></p>
+                        <p><strong>Reason:</strong> {listing.deletion_reason || 'Policy Enforcement'}</p>
+                        {listing.previous_status && (
+                          <p className="text-muted-foreground"><strong>Previous State:</strong> {listing.previous_status}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Sold Info */}
+                    {isSold && !isSoftDeleted && (
+                      <div className="text-xs bg-cyan-500/10 text-cyan-400 p-2 rounded-lg border border-cyan-500/20">
+                        <p><strong>Completed Transaction:</strong> {listing.sold_at ? new Date(listing.sold_at).toLocaleString() : 'Marked as Sold'}</p>
+                      </div>
+                    )}
+
+                    {/* Action Buttons Bar */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/50">
+                      <Link to={`/listing/${listing.id}`} target="_blank" rel="noopener noreferrer">
+                        <Button variant="outline" size="sm" className="h-8 text-xs font-medium">
+                          <ExternalLink className="w-3.5 h-3.5 mr-1 text-violet-400" /> Public Page
+                        </Button>
+                      </Link>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs font-medium"
+                        onClick={() => handleOpenInspect(listing)}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1 text-cyan-400" /> Inspect
+                      </Button>
+
+                      {isSoftDeleted || listing.status === 'archived' ? (
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                          onClick={() => handleRestoreListing(listing.id)}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 mr-1" /> Restore Post
+                        </Button>
+                      ) : null}
+
+                      {listing.status === 'active' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => handleArchiveListing(listing.id)}
+                        >
+                          Archive
+                        </Button>
+                      )}
+
+                      {(listing.status === 'pending' || listing.status === 'pending_payment') && (
+                        <>
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 font-semibold"
+                            onClick={() => updateListing(listing.id, { status: 'active' })}
+                          >
+                            <Check className="w-3.5 h-3.5 mr-1" /> Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs text-red-400 hover:bg-red-500/10"
+                            onClick={() => updateListing(listing.id, { status: 'rejected' })}
+                          >
+                            <X className="w-3.5 h-3.5 mr-1" /> Reject
+                          </Button>
+                        </>
+                      )}
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => updateListing(listing.id, { featured: !listing.featured })}
+                      >
+                        <Star className={`w-3.5 h-3.5 mr-1 ${listing.featured ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
+                        {listing.featured ? 'Unfeature' : 'Feature'}
+                      </Button>
+
+                      {!isSoftDeleted && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 ml-auto"
+                          onClick={() => {
+                            setDeletingListing(listing);
+                            setDeletionReason('');
+                          }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
+
+        {/* Unified Pagination Controls */}
+        <PaginationControls
+          currentPage={listingsPage}
+          totalPages={totalPages}
+          totalRecords={totalListings}
+          pageSize={20}
+          onPageChange={(newPage) => {
+            setListingsPage(newPage);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
       </div>
+
+      {/* Inspect Listing Dialog */}
+      <Dialog open={!!inspectListing} onOpenChange={(open) => !open && setInspectListing(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-2">
+              <DialogTitle className="text-lg font-bold flex items-center gap-2">
+                <Package className="w-5 h-5 text-violet-400" />
+                Listing Inspection
+              </DialogTitle>
+              {inspectListing && (
+                <Badge variant="outline" className={`text-xs ${statusColors[inspectListing.status] || ''}`}>
+                  {inspectListing.status}
+                </Badge>
+              )}
+            </div>
+            <DialogDescription>
+              Comprehensive metadata, specifications, seller details, validity timestamps, and audit notes.
+            </DialogDescription>
+          </DialogHeader>
+
+          {inspectListing && (
+            <div className="space-y-4 py-2 text-xs">
+              {/* Image Gallery */}
+              {inspectListing.images?.length > 0 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {inspectListing.images.map((imgUrl, idx) => (
+                    <div key={idx} className="h-24 rounded-lg overflow-hidden bg-muted border border-border">
+                      <img src={imgUrl} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Title & Pricing */}
+              <div className="p-3 bg-muted/40 rounded-xl space-y-1.5 border border-border">
+                <h4 className="text-sm font-bold text-foreground">{inspectListing.title}</h4>
+                <p className="text-base font-mono font-black text-violet-400">
+                  {formatPrice(inspectListing.price)} <span className="text-xs font-normal text-muted-foreground">({inspectListing.price_type || 'fixed'})</span>
+                </p>
+                <p className="text-muted-foreground whitespace-pre-wrap">{inspectListing.description}</p>
+              </div>
+
+              {/* Key Attributes */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="p-2.5 bg-muted/20 rounded-lg border border-border">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Category</span>
+                  <span className="font-semibold text-foreground">{inspectListing.category_name || 'N/A'}</span>
+                </div>
+                <div className="p-2.5 bg-muted/20 rounded-lg border border-border">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Condition</span>
+                  <span className="font-semibold text-foreground">{inspectListing.condition || 'Used'}</span>
+                </div>
+                <div className="p-2.5 bg-muted/20 rounded-lg border border-border">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Item Type</span>
+                  <span className="font-semibold text-foreground uppercase">{inspectListing.item_type || 'physical'}</span>
+                </div>
+                <div className="p-2.5 bg-muted/20 rounded-lg border border-border">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Location</span>
+                  <span className="font-semibold text-foreground">{inspectListing.location_district || inspectListing.location || 'Kerala'}</span>
+                </div>
+                <div className="p-2.5 bg-muted/20 rounded-lg border border-border">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Total Views</span>
+                  <span className="font-semibold text-cyan-400 font-mono">{(inspectListing.views_count || 0).toLocaleString()}</span>
+                </div>
+                <div className="p-2.5 bg-muted/20 rounded-lg border border-border">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-bold">Seller Contact</span>
+                  <span className="font-semibold text-foreground font-mono">{inspectListing.contact_phone || 'Hidden'}</span>
+                </div>
+              </div>
+
+              {/* Specifications List */}
+              {inspectListing.specifications?.length > 0 && (
+                <div className="space-y-1.5">
+                  <h5 className="font-bold text-foreground">Hardware Specifications</h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {inspectListing.specifications.map((spec, sIdx) => (
+                      <div key={sIdx} className="flex justify-between p-2 bg-muted/30 rounded border border-border">
+                        <span className="text-muted-foreground">{spec.key}:</span>
+                        <span className="font-semibold text-foreground">{spec.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Validity & Expiry Timestamps */}
+              <div className="p-3 bg-violet-500/5 rounded-xl border border-violet-500/20 space-y-1">
+                <h5 className="font-bold text-violet-800 dark:text-violet-300">90-Day Validity & Expiry Profile</h5>
+                <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                  <div>Published: <strong className="text-foreground">{formatDate(inspectListing.published_at || inspectListing.created_at)}</strong></div>
+                  <div>Expires: <strong className="text-foreground">{formatDate(inspectListing.expires_at)}</strong></div>
+                  <div>Extension Count: <strong className="text-foreground">{inspectListing.extension_count || 0} / 1</strong></div>
+                  <div>Free Edit Allowed: <strong className="text-foreground">{inspectListing.free_edit_allowed ? 'Yes' : 'No'}</strong></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex justify-between items-center gap-2">
+            {inspectListing && (
+              <Link to={`/listing/${inspectListing.id}`} target="_blank">
+                <Button variant="outline" size="sm" className="text-xs">
+                  <ExternalLink className="w-3.5 h-3.5 mr-1" /> Open Marketplace Page
+                </Button>
+              </Link>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => setInspectListing(null)} className="text-xs ml-auto">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Listing Confirmation Dialog */}
       <Dialog open={!!deletingListing} onOpenChange={(open) => !open && setDeletingListing(null)}>
@@ -1145,19 +2334,19 @@ function ListingsManagement() {
 
           {deletingListing && (
             <div className="space-y-4 py-2">
-              <div className="p-3 bg-muted/40 rounded-xl space-y-1 text-xs">
+              <div className="p-3 bg-muted/40 rounded-xl space-y-1 text-xs border border-border">
                 <p className="font-bold text-foreground truncate">{deletingListing.title}</p>
-                <p className="text-muted-foreground">Listing ID: <code className="font-mono">{deletingListing.id}</code></p>
-                <p className="text-muted-foreground">Current Status: <strong className="text-foreground">{deletingListing.status}</strong></p>
+                <p className="text-muted-foreground">Listing ID: <code className="font-mono text-zinc-300">{deletingListing.id}</code></p>
+                <p className="text-muted-foreground">Current Status: <strong className="text-foreground uppercase">{deletingListing.status}</strong></p>
               </div>
 
               <div>
                 <Label htmlFor="del-reason" className="text-xs font-semibold block mb-1.5">
-                  Reason for Deletion (Audit Trail)
+                  Reason for Deletion (Recorded in Audit Log)
                 </Label>
                 <Input
                   id="del-reason"
-                  placeholder="e.g. Violation of marketplace policy, inappropriate content, scam report"
+                  placeholder="e.g. Policy violation, inappropriate content, counterfeit, scam report"
                   value={deletionReason}
                   onChange={(e) => setDeletionReason(e.target.value)}
                   className="rounded-xl text-xs sm:text-sm"
@@ -1497,16 +2686,38 @@ function ReportsManagement() {
   const [selectedReportForRemoval, setSelectedReportForRemoval] = useState(null);
   const [removalReason, setRemovalReason] = useState('Listing removed due to community violation report');
   const [removing, setRemoving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Admin response modal
+  const [showRespondModal, setShowRespondModal] = useState(false);
+  const [selectedReportForResponse, setSelectedReportForResponse] = useState(null);
+  const [responseAction, setResponseAction] = useState('resolved');
+  const [adminResponseText, setAdminResponseText] = useState('');
+  const [responding, setResponding] = useState(false);
 
   useEffect(() => {
     fetchReports();
-  }, [filter]);
+  }, [filter, page]);
 
   const fetchReports = async () => {
     try {
-      const params = filter !== 'all' ? `?status=${filter}` : '';
-      const response = await api.get(`/admin/reports${params}`);
-      setReports(response.data);
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (filter !== 'all') params.append('status', filter);
+      params.append('page', page);
+      params.append('limit', '20');
+      const response = await api.get(`/admin/reports?${params.toString()}`);
+      if (Array.isArray(response.data)) {
+        setReports(response.data);
+        setTotalCount(response.data.length);
+        setTotalPages(1);
+      } else {
+        setReports(response.data.reports || []);
+        setTotalCount(response.data.total || 0);
+        setTotalPages(response.data.total_pages || 1);
+      }
     } catch (error) {
       console.error('Failed to fetch reports:', error);
     } finally {
@@ -1514,10 +2725,50 @@ function ReportsManagement() {
     }
   };
 
-  const handleReview = async (reportId, action) => {
+  const openRespondDialog = (report, action = 'resolved') => {
+    setSelectedReportForResponse(report);
+    setResponseAction(action);
+    setAdminResponseText(
+      report.admin_response ||
+      (action === 'resolved'
+        ? 'We investigated this report and took appropriate action to resolve the issue.'
+        : action === 'under_review'
+        ? 'Our moderation team is currently reviewing the reported details and evidence.'
+        : 'After reviewing the reported listing and details, no policy violation was identified.')
+    );
+    setShowRespondModal(true);
+  };
+
+  const handleConfirmResponse = async () => {
+    if (!selectedReportForResponse) return;
+    setResponding(true);
+    try {
+      await api.put(`/admin/reports/${selectedReportForResponse.id}/review`, {
+        action: responseAction,
+        admin_response: adminResponseText
+      });
+      toast.success(`Report updated to ${responseAction}`);
+      setShowRespondModal(false);
+      setSelectedReportForResponse(null);
+      fetchReports();
+    } catch (error) {
+      toast.error('Failed to submit response');
+    } finally {
+      setResponding(false);
+    }
+  };
+
+  const handleQuickReview = async (reportId, action) => {
     setActionLoading(reportId);
     try {
-      await api.put(`/admin/reports/${reportId}?status=${action}`);
+      const defaultResponse =
+        action === 'resolved'
+          ? 'We reviewed this report and took appropriate moderation action.'
+          : 'Report reviewed and dismissed by moderation team.';
+      await api.put(`/admin/reports/${reportId}/review`, {
+        action: action,
+        admin_response: defaultResponse
+      });
       toast.success(`Report marked as ${action}`);
       fetchReports();
     } catch (error) {
@@ -1608,6 +2859,7 @@ function ReportsManagement() {
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="under_review">Under Review</SelectItem>
             <SelectItem value="resolved">Resolved</SelectItem>
             <SelectItem value="dismissed">Dismissed</SelectItem>
           </SelectContent>
@@ -1639,7 +2891,7 @@ function ReportsManagement() {
               <Checkbox
                 checked={selectedReports.includes(report.id)}
                 onCheckedChange={() => toggleSelectReport(report.id)}
-                disabled={report.status !== 'pending'}
+                disabled={report.status !== 'pending' && report.status !== 'under_review'}
               />
               <div className="flex-1">
                 <div className="flex items-start justify-between mb-2">
@@ -1649,6 +2901,7 @@ function ReportsManagement() {
                   </div>
                   <Badge variant="outline" className={
                     report.status === 'pending' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+                    report.status === 'under_review' ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' :
                     report.status === 'resolved' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
                     'bg-gray-500/10 text-gray-500'
                   }>
@@ -1665,6 +2918,14 @@ function ReportsManagement() {
                 <p className="text-xs sm:text-sm mb-2"><strong>Reason:</strong> <span className="text-rose-400 font-semibold">{report.reason}</span></p>
                 {report.details && (
                   <p className="text-xs sm:text-sm text-muted-foreground mb-3 bg-muted/40 p-2.5 rounded-lg border border-border/50">{report.details}</p>
+                )}
+
+                {/* Existing Admin Response display */}
+                {report.admin_response && (
+                  <div className="mb-3 p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-lg text-xs space-y-1">
+                    <p className="font-semibold text-violet-300">Admin Response to User:</p>
+                    <p className="text-foreground">"{report.admin_response}"</p>
+                  </div>
                 )}
                 
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40">
@@ -1684,7 +2945,7 @@ function ReportsManagement() {
                   )}
 
                   {/* Direct Action to Remove Listing */}
-                  {report.target_type === 'listing' && report.target_id && report.status === 'pending' && (
+                  {report.target_type === 'listing' && report.target_id && (report.status === 'pending' || report.status === 'under_review') && (
                     <Button
                       variant="destructive"
                       size="sm"
@@ -1697,28 +2958,37 @@ function ReportsManagement() {
                     </Button>
                   )}
 
-                  {report.status === 'pending' && (
+                  {/* Status & Response Controls */}
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-violet-600 hover:bg-violet-700 text-white font-semibold flex items-center gap-1"
+                    onClick={() => openRespondDialog(report, 'resolved')}
+                  >
+                    <span>Respond & Resolve</span>
+                  </Button>
+
+                  {(report.status === 'pending' || report.status === 'under_review') && (
                     <>
                       <Button
                         size="sm"
                         className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                        onClick={() => handleReview(report.id, 'resolved')}
+                        onClick={() => handleQuickReview(report.id, 'resolved')}
                         disabled={actionLoading === report.id}
                       >
                         {actionLoading === report.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          'Mark Resolved'
+                          'Quick Resolve'
                         )}
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         className="h-8 text-xs"
-                        onClick={() => handleReview(report.id, 'dismissed')}
+                        onClick={() => openRespondDialog(report, 'dismissed')}
                         disabled={actionLoading === report.id}
                       >
-                        Dismiss
+                        Dismiss with Note
                       </Button>
                     </>
                   )}
@@ -1733,7 +3003,88 @@ function ReportsManagement() {
             <p className="text-muted-foreground text-sm font-semibold">No reports found</p>
           </div>
         )}
+
+        {totalCount > 0 && (
+          <div className="pt-2">
+            <PaginationControls
+              currentPage={page}
+              totalPages={totalPages}
+              totalItems={totalCount}
+              itemsPerPage={20}
+              onPageChange={setPage}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Admin Response Modal */}
+      <Dialog open={showRespondModal} onOpenChange={setShowRespondModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-violet-500" />
+              <span>Respond to User Report</span>
+            </DialogTitle>
+            <DialogDescription>
+              Write a user-facing comment explaining the outcome or action taken.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedReportForResponse && (
+            <div className="space-y-4 py-2">
+              <div className="p-3 bg-muted/40 rounded-lg border border-border text-xs space-y-1">
+                <p><strong>Report:</strong> #{selectedReportForResponse.id.slice(0, 8)} • {selectedReportForResponse.reason}</p>
+                {selectedReportForResponse.details && (
+                  <p className="text-muted-foreground">{selectedReportForResponse.details}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="admin-action-select">Update Status To</Label>
+                <Select value={responseAction} onValueChange={setResponseAction}>
+                  <SelectTrigger id="admin-action-select">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="resolved">Resolved (Issue addressed)</SelectItem>
+                    <SelectItem value="under_review">Under Review (Investigation ongoing)</SelectItem>
+                    <SelectItem value="dismissed">Dismissed (No violation found)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="admin-response-input">User-Facing Response Comment *</Label>
+                <Textarea
+                  id="admin-response-input"
+                  value={adminResponseText}
+                  onChange={(e) => setAdminResponseText(e.target.value)}
+                  placeholder="Enter response message visible to the reporting user..."
+                  rows={3}
+                  className="text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  This note will be visible to the user on their "My Reports" dashboard tab.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowRespondModal(false)} disabled={responding}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmResponse}
+              disabled={responding || !adminResponseText.trim()}
+              className="bg-violet-600 hover:bg-violet-700 font-bold"
+            >
+              {responding ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
+              Submit Response
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmation Dialog for Destructive Listing Removal */}
       <Dialog open={showRemoveModal} onOpenChange={setShowRemoveModal}>
@@ -1791,12 +3142,19 @@ function ReportsManagement() {
 // Upgraded KYC & Seller Verification Management Component
 function KYCManagement() {
   const [submissions, setSubmissions] = useState([]);
+  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0, revoked: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [actionLoading, setActionLoading] = useState(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   
   // Dialog States
   const [selectedKYC, setSelectedKYC] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [showRevokeDialog, setShowRevokeDialog] = useState(false);
@@ -1804,20 +3162,69 @@ function KYCManagement() {
   const [showReverifyDialog, setShowReverifyDialog] = useState(false);
   const [reverifyReason, setReverifyReason] = useState('');
 
-  useEffect(() => {
-    fetchSubmissions();
-  }, [filter]);
-
-  const fetchSubmissions = async () => {
+  // Fetch KYC stats
+  const fetchStats = async () => {
     try {
-      const params = filter !== 'all' ? `?status=${filter}` : '';
-      const response = await api.get(`/admin/kyc${params}`);
-      setSubmissions(response.data);
-    } catch (error) {
-      console.error('Failed to fetch KYC submissions:', error);
+      const res = await api.get('/admin/kyc/stats');
+      if (res.data) {
+        setStats(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch KYC stats:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchSubmissions = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const params = new URLSearchParams();
+      if (filter !== 'all') params.append('status', filter);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      params.append('page', page);
+      params.append('limit', '20');
+      
+      const response = await api.get(`/admin/kyc?${params.toString()}`);
+      if (Array.isArray(response.data)) {
+        setSubmissions(response.data);
+        setTotalCount(response.data.length);
+        setTotalPages(1);
+      } else {
+        setSubmissions(response.data.submissions || response.data.items || []);
+        setTotalCount(response.data.total || 0);
+        setTotalPages(response.data.total_pages || Math.ceil((response.data.total || 0) / 20) || 1);
+      }
+    } catch (err) {
+      console.error('Failed to fetch KYC submissions:', err);
+      setError('Unable to load KYC submissions. Please try again.');
+      toast.error('Failed to load KYC verification requests');
     } finally {
       setLoading(false);
     }
+  }, [filter, searchQuery, page]);
+
+  useEffect(() => {
+    fetchSubmissions();
+  }, [fetchSubmissions]);
+
+  const handleFilterChange = (val) => {
+    setFilter(val);
+    setPage(1);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+    setPage(1);
+  };
+
+  const handleResetFilters = () => {
+    setFilter('all');
+    setSearchQuery('');
+    setPage(1);
   };
 
   const handleApprove = async (kycId) => {
@@ -1826,6 +3233,7 @@ function KYCManagement() {
       await api.put(`/admin/kyc/${kycId}/approve`);
       toast.success('Seller verified and KYC approved');
       fetchSubmissions();
+      fetchStats();
     } catch (error) {
       toast.error('Failed to approve KYC');
     } finally {
@@ -1842,6 +3250,7 @@ function KYCManagement() {
       setShowRejectDialog(false);
       setRejectReason('');
       fetchSubmissions();
+      fetchStats();
     } catch (error) {
       toast.error('Failed to reject KYC');
     } finally {
@@ -1858,6 +3267,7 @@ function KYCManagement() {
       setShowRevokeDialog(false);
       setRevokeReason('');
       fetchSubmissions();
+      fetchStats();
     } catch (error) {
       toast.error('Failed to revoke verification');
     } finally {
@@ -1874,6 +3284,7 @@ function KYCManagement() {
       setShowReverifyDialog(false);
       setReverifyReason('');
       fetchSubmissions();
+      fetchStats();
     } catch (error) {
       toast.error('Failed to request re-verification');
     } finally {
@@ -1887,205 +3298,404 @@ function KYCManagement() {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
   const getStatusBadge = (status) => {
     switch (status) {
       case 'approved':
-        return <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">Verified / Approved</Badge>;
+        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 flex items-center gap-1 font-semibold"><Check className="w-3 h-3" /> Verified / Approved</Badge>;
       case 'pending':
-        return <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">Pending Review</Badge>;
+        return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 flex items-center gap-1 font-semibold"><Clock className="w-3 h-3" /> Pending Review</Badge>;
       case 'rejected':
-        return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Rejected</Badge>;
+        return <Badge className="bg-red-500/10 text-red-400 border-red-500/30 flex items-center gap-1 font-semibold"><X className="w-3 h-3" /> Rejected</Badge>;
       case 'revoked':
-        return <Badge className="bg-rose-600/10 text-rose-500 border-rose-500/30">Revoked</Badge>;
+        return <Badge className="bg-rose-600/10 text-rose-400 border-rose-500/30 flex items-center gap-1 font-semibold"><ShieldOff className="w-3 h-3" /> Revoked</Badge>;
       case 'reverification_requested':
-        return <Badge className="bg-cyan-500/10 text-cyan-500 border-cyan-500/20">Re-verify Requested</Badge>;
+        return <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 flex items-center gap-1 font-semibold"><RotateCcw className="w-3 h-3" /> Re-verify Requested</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
-      </div>
-    );
-  }
-
   return (
-    <div data-testid="admin-kyc" className="space-y-4">
+    <div data-testid="admin-kyc" className="space-y-6 w-full max-w-full">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-foreground">Seller Verification & KYC Queue</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Admin-only review and approval of seller trust verification</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Admin-only review, trust verification, and identity compliance management</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => { fetchSubmissions(); fetchStats(); }} className="h-8 text-xs font-semibold gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
+          <Badge variant="outline" className="text-xs font-mono">
+            {totalCount} Active Queue Items
+          </Badge>
+        </div>
+      </div>
+
+      {/* Overview Stat Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div 
+          onClick={() => handleFilterChange('all')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            filter === 'all' ? 'bg-violet-500/10 border-violet-500/40 ring-1 ring-violet-500/30' : 'bg-card border-border hover:border-violet-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Total Queue</span>
+            <ShieldCheck className="w-4 h-4 text-violet-400" />
+          </div>
+          <div className="text-xl font-bold text-foreground mt-1.5">{stats.total || 0}</div>
         </div>
 
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-[180px] rounded-xl">
-            <SelectValue placeholder="Filter Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Verification Records</SelectItem>
-            <SelectItem value="pending">Pending Review</SelectItem>
-            <SelectItem value="approved">Approved (Verified)</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-            <SelectItem value="revoked">Revoked</SelectItem>
-          </SelectContent>
-        </Select>
+        <div 
+          onClick={() => handleFilterChange('pending')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            filter === 'pending' ? 'bg-amber-500/15 border-amber-500/40 ring-1 ring-amber-500/30' : 'bg-card border-border hover:border-amber-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-amber-400 font-medium">Pending Review</span>
+            <Clock className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="text-xl font-bold text-amber-400 mt-1.5">{stats.pending || 0}</div>
+        </div>
+
+        <div 
+          onClick={() => handleFilterChange('approved')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            filter === 'approved' ? 'bg-emerald-500/15 border-emerald-500/40 ring-1 ring-emerald-500/30' : 'bg-card border-border hover:border-emerald-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-emerald-400 font-medium">Verified / Approved</span>
+            <Check className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-xl font-bold text-emerald-400 mt-1.5">{stats.approved || 0}</div>
+        </div>
+
+        <div 
+          onClick={() => handleFilterChange('rejected')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            filter === 'rejected' ? 'bg-red-500/15 border-red-500/40 ring-1 ring-red-500/30' : 'bg-card border-border hover:border-red-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-red-400 font-medium">Rejected</span>
+            <X className="w-4 h-4 text-red-400" />
+          </div>
+          <div className="text-xl font-bold text-red-400 mt-1.5">{stats.rejected || 0}</div>
+        </div>
+
+        <div 
+          onClick={() => handleFilterChange('revoked')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            filter === 'revoked' ? 'bg-rose-500/15 border-rose-500/40 ring-1 ring-rose-500/30' : 'bg-card border-border hover:border-rose-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-rose-400 font-medium">Revoked</span>
+            <ShieldOff className="w-4 h-4 text-rose-400" />
+          </div>
+          <div className="text-xl font-bold text-rose-400 mt-1.5">{stats.revoked || 0}</div>
+        </div>
       </div>
 
-      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-        <strong>Privacy & Security Compliance:</strong> KYC identity files are strictly restricted to administrators. Document numbers are permanently masked to protect user privacy.
+      {/* Compliance & Notice */}
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed flex items-start gap-2.5">
+        <Shield className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <div>
+          <strong>Privacy & Security Compliance:</strong> KYC identity files are strictly restricted to administrators. Document numbers are permanently masked to protect user privacy.
+        </div>
       </div>
 
-      <div className="space-y-4">
-        {submissions.map((kyc) => (
-          <div key={kyc.id} className="bg-card border border-border rounded-xl p-5 shadow-sm">
-            <div className="flex items-start justify-between mb-3 gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-base text-foreground">{kyc.user_name || 'Unknown User'}</p>
-                  {getStatusBadge(kyc.status)}
+      {/* Search and Filters Bar */}
+      <div className="bg-card border border-border rounded-xl p-3.5 flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search name, email, doc #, ID..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            className="pl-9 h-9 text-xs rounded-xl"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <Select value={filter} onValueChange={handleFilterChange}>
+            <SelectTrigger className="w-44 text-xs h-9 rounded-xl">
+              <SelectValue placeholder="Filter Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Verification Records</SelectItem>
+              <SelectItem value="pending">Pending Review</SelectItem>
+              <SelectItem value="approved">Approved (Verified)</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="revoked">Revoked</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {(filter !== 'all' || searchQuery) && (
+            <Button variant="ghost" size="sm" onClick={handleResetFilters} className="h-9 text-xs font-semibold text-muted-foreground hover:text-foreground">
+              Reset Filters
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Content Area with Loading, Error, Empty & List states */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 bg-card rounded-2xl border border-border">
+          <Loader2 className="w-9 h-9 animate-spin text-violet-500 mb-3" />
+          <p className="text-sm font-medium text-foreground">Loading verification records...</p>
+          <p className="text-xs text-muted-foreground mt-1">Fetching latest KYC documents and status updates</p>
+        </div>
+      ) : error ? (
+        <div className="text-center py-16 bg-card rounded-2xl border border-border p-6">
+          <AlertTriangle className="w-12 h-12 mx-auto text-red-400 mb-3" />
+          <h3 className="font-bold text-base text-foreground">Unable to load KYC submissions</h3>
+          <p className="text-xs text-muted-foreground mt-1 mb-4">{error}</p>
+          <Button size="sm" onClick={fetchSubmissions} className="bg-violet-600 hover:bg-violet-700">
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Retry Request
+          </Button>
+        </div>
+      ) : submissions.length === 0 ? (
+        <div className="text-center py-16 bg-card rounded-2xl border border-border p-6">
+          <ShieldCheck className="w-12 h-12 mx-auto text-muted-foreground mb-3 opacity-50" />
+          <h3 className="font-bold text-base text-foreground">No verification submissions</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            {searchQuery || filter !== 'all' 
+              ? 'No KYC submissions match your selected filter criteria.' 
+              : 'There are no pending seller verification submissions at this time.'}
+          </p>
+          {(filter !== 'all' || searchQuery) && (
+            <Button size="sm" variant="outline" onClick={handleResetFilters} className="mt-4 text-xs font-semibold">
+              Clear Filters
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3.5">
+          {submissions.map((kyc) => (
+            <div key={kyc.id} className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm hover:border-violet-500/30 transition-all">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-3 gap-3">
+                <div className="flex items-start gap-3">
+                  <Avatar name={kyc.user_name || 'User'} className="w-10 h-10 rounded-xl bg-violet-600/20 text-violet-400 font-bold shrink-0 mt-0.5" />
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-base text-foreground">{kyc.user_name || 'Unknown User'}</p>
+                      {getStatusBadge(kyc.status)}
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono mt-0.5">{kyc.user_email || 'No email provided'}</p>
+                    {kyc.user_id && (
+                      <p className="text-[11px] text-muted-foreground/70 font-mono mt-0.5">UID: {kyc.user_id}</p>
+                    )}
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground font-mono mt-0.5">{kyc.user_email || 'No email provided'}</p>
-              </div>
 
-              <span className="text-xs text-muted-foreground shrink-0 font-mono">
-                Submitted: {formatDate(kyc.created_at)}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 p-3 bg-muted/40 rounded-lg text-xs">
-              <div>
-                <span className="text-muted-foreground block">Document Type:</span>
-                <span className="font-semibold capitalize text-foreground">{kyc.document_type?.replace('_', ' ')}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block">Masked ID Number:</span>
-                <span className="font-mono font-bold text-foreground">****{kyc.document_number}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block">Document Attachment:</span>
-                {kyc.document_image_url ? (
-                  <a 
-                    href={kyc.document_image_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="text-violet-500 hover:underline font-semibold flex items-center gap-1 mt-0.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" /> View Uploaded ID
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground">No image attached</span>
-                )}
-              </div>
-            </div>
-
-            {/* Rejection / Revocation Reason */}
-            {kyc.rejection_reason && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-600 dark:text-red-400 mb-3">
-                <strong>Admin Moderation Note:</strong> {kyc.rejection_reason}
-              </div>
-            )}
-
-            {/* Action Bar */}
-            <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-              {kyc.status !== 'approved' && (
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 font-semibold text-xs h-8"
-                  onClick={() => handleApprove(kyc.id)}
-                  disabled={actionLoading === kyc.id}
-                >
-                  {actionLoading === kyc.id ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                  ) : (
-                    <Check className="w-3.5 h-3.5 mr-1" />
+                <div className="text-left sm:text-right shrink-0">
+                  <span className="text-xs text-muted-foreground font-mono block">
+                    Submitted: {formatDate(kyc.created_at)}
+                  </span>
+                  {kyc.reviewed_at && (
+                    <span className="text-[11px] text-muted-foreground font-mono block mt-0.5">
+                      Reviewed: {formatDate(kyc.reviewed_at)}
+                    </span>
                   )}
-                  Approve Verification
-                </Button>
+                </div>
+              </div>
+
+              {/* Document Summary Card */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 p-3.5 bg-muted/40 rounded-xl border border-border/50 text-xs">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Document Type</span>
+                  <span className="font-semibold capitalize text-foreground text-xs mt-0.5 block">{kyc.document_type?.replace(/_/g, ' ') || 'ID Document'}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Masked ID Number</span>
+                  <span className="font-mono font-bold text-foreground text-xs mt-0.5 block">****{kyc.document_number || '****'}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Document Attachment</span>
+                  {kyc.document_image_url ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setPreviewImage(kyc.document_image_url)}
+                        className="h-6 px-2 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 text-xs font-semibold gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Inspect Document
+                      </Button>
+                      <a 
+                        href={kyc.document_image_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-muted-foreground hover:text-foreground text-xs"
+                        title="Open in new tab"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-xs italic mt-0.5 block">No document image attached</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Rejection / Revocation Reason */}
+              {kyc.rejection_reason && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-600 dark:text-red-400 mb-3 flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                  <div>
+                    <strong>Admin Moderation Note:</strong> {kyc.rejection_reason}
+                  </div>
+                </div>
               )}
 
-              {kyc.status === 'pending' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-red-500 hover:bg-red-500/10 font-semibold text-xs h-8"
-                  onClick={() => {
-                    setSelectedKYC(kyc);
-                    setShowRejectDialog(true);
-                  }}
-                >
-                  <X className="w-3.5 h-3.5 mr-1" />
-                  Reject
-                </Button>
-              )}
+              {/* Action Bar */}
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-border items-center">
+                {kyc.status !== 'approved' && (
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-8 rounded-lg"
+                    onClick={() => handleApprove(kyc.id)}
+                    disabled={actionLoading === kyc.id}
+                  >
+                    {actionLoading === kyc.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    Approve Verification
+                  </Button>
+                )}
 
-              {kyc.status === 'approved' && (
-                <>
+                {kyc.status === 'pending' && (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-rose-500 hover:bg-rose-500/10 border-rose-500/30 font-semibold text-xs h-8"
+                    className="text-red-400 hover:bg-red-500/10 hover:text-red-300 border-red-500/30 font-semibold text-xs h-8 rounded-lg"
                     onClick={() => {
                       setSelectedKYC(kyc);
-                      setShowRevokeDialog(true);
+                      setShowRejectDialog(true);
                     }}
                   >
-                    <ShieldOff className="w-3.5 h-3.5 mr-1" />
-                    Revoke Verification
+                    <X className="w-3.5 h-3.5 mr-1.5" />
+                    Reject
                   </Button>
+                )}
 
+                {kyc.status === 'approved' && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 border-rose-500/30 font-semibold text-xs h-8 rounded-lg"
+                      onClick={() => {
+                        setSelectedKYC(kyc);
+                        setShowRevokeDialog(true);
+                      }}
+                    >
+                      <ShieldOff className="w-3.5 h-3.5 mr-1.5" />
+                      Revoke Verification
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 border-cyan-500/30 font-semibold text-xs h-8 rounded-lg"
+                      onClick={() => {
+                        setSelectedKYC(kyc);
+                        setShowReverifyDialog(true);
+                      }}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                      Request Re-verification
+                    </Button>
+                  </>
+                )}
+
+                {(kyc.status === 'rejected' || kyc.status === 'revoked') && (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-cyan-500 hover:bg-cyan-500/10 font-semibold text-xs h-8"
+                    className="text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 border-cyan-500/30 font-semibold text-xs h-8 rounded-lg"
                     onClick={() => {
                       setSelectedKYC(kyc);
                       setShowReverifyDialog(true);
                     }}
                   >
-                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                    Request Re-verification
+                    <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                    Allow Re-submission
                   </Button>
-                </>
-              )}
-
-              {(kyc.status === 'rejected' || kyc.status === 'revoked') && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-cyan-500 hover:bg-cyan-500/10 font-semibold text-xs h-8"
-                  onClick={() => {
-                    setSelectedKYC(kyc);
-                    setShowReverifyDialog(true);
-                  }}
-                >
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  Allow Re-submission
-                </Button>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {submissions.length === 0 && (
-          <div className="text-center py-16 bg-card rounded-2xl border border-border">
-            <ShieldCheck className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-            <h3 className="font-bold text-base text-foreground">No verification submissions</h3>
-            <p className="text-xs text-muted-foreground mt-1">There are no seller KYC requests matching the selected filter.</p>
+          {/* Unified Pagination */}
+          <div className="pt-2">
+            <PaginationControls
+              currentPage={page}
+              totalPages={totalPages}
+              totalRecords={totalCount}
+              pageSize={20}
+              onPageChange={setPage}
+            />
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Document Inspection Dialog */}
+      <Dialog open={!!previewImage} onOpenChange={(open) => !open && setPreviewImage(null)}>
+        <DialogContent className="max-w-3xl rounded-2xl bg-card border border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-foreground">
+              <FileSearch className="w-5 h-5 text-violet-400" />
+              Document Full View Inspection
+            </DialogTitle>
+            <DialogDescription>
+              High-resolution administrative inspection for verification compliance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-2 bg-black/40 rounded-xl border border-border flex items-center justify-center min-h-[300px] max-h-[70vh] overflow-auto">
+            {previewImage && (
+              <img 
+                src={previewImage} 
+                alt="KYC Verification Document" 
+                className="max-h-[65vh] w-auto object-contain rounded-lg shadow-lg"
+              />
+            )}
+          </div>
+          <DialogFooter className="flex justify-between items-center sm:justify-between">
+            <a
+              href={previewImage || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-violet-400 hover:underline flex items-center gap-1 font-semibold"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Open full image in new tab
+            </a>
+            <Button variant="outline" onClick={() => setPreviewImage(null)} className="rounded-xl text-xs">
+              Close Preview
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reject Dialog */}
       <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
         <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Reject KYC Submission</DialogTitle>
+            <DialogTitle className="text-red-400 flex items-center gap-2">
+              <X className="w-5 h-5" /> Reject KYC Submission
+            </DialogTitle>
             <DialogDescription>
               Provide an explanation for rejecting this user's verification documents.
             </DialogDescription>
@@ -2146,7 +3756,9 @@ function KYCManagement() {
       <Dialog open={showReverifyDialog} onOpenChange={setShowReverifyDialog}>
         <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Request Re-verification</DialogTitle>
+            <DialogTitle className="text-cyan-400 flex items-center gap-2">
+              <RotateCcw className="w-5 h-5" /> Request Re-verification
+            </DialogTitle>
             <DialogDescription>
               Prompt the seller to re-upload fresh or updated identification documents.
             </DialogDescription>
@@ -2182,10 +3794,13 @@ function SupportTicketsManagement() {
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [adminResponse, setAdminResponse] = useState('');
+  const [ticketDecision, setTicketDecision] = useState('NONE');
   const [adminNotes, setAdminNotes] = useState('');
   const [ticketStatus, setTicketStatus] = useState('open');
   const [ticketPriority, setTicketPriority] = useState('medium');
   const [actionLoading, setActionLoading] = useState(false);
+  const [ticketsPage, setTicketsPage] = useState(1);
 
   useEffect(() => {
     fetchTickets();
@@ -2213,9 +3828,11 @@ function SupportTicketsManagement() {
       await api.put(`/admin/support/${selectedTicket.id}`, {
         status: ticketStatus,
         priority: ticketPriority,
+        decision: ticketDecision !== 'NONE' ? ticketDecision : (ticketStatus === 'resolved' ? 'RESOLVED' : null),
+        admin_response: adminResponse.trim() || null,
         admin_notes: adminNotes
       });
-      toast.success('Support ticket updated');
+      toast.success('Support ticket updated successfully');
       setSelectedTicket(null);
       fetchTickets();
     } catch (error) {
@@ -2225,10 +3842,35 @@ function SupportTicketsManagement() {
     }
   };
 
+  const handleQuickTicketAction = async (actionType) => {
+    if (!selectedTicket) return;
+    setActionLoading(true);
+    try {
+      const res = await api.put(`/admin/support/${selectedTicket.id}`, {
+        action: actionType,
+        admin_response: adminResponse.trim() || (
+          actionType === 'approve_extension' ? 'Your 30-day listing validity extension request has been approved.' :
+          actionType === 'approve_free_edit' ? 'Your 1-time free edit allowance request has been granted. You can now edit your listing details.' :
+          'Your request has been reviewed and rejected by the moderation team.'
+        ),
+        admin_notes: adminNotes.trim()
+      });
+      toast.success(res.data?.message || 'Ticket action processed successfully');
+      setSelectedTicket(null);
+      fetchTickets();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to process action');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const openTicketModal = (ticket) => {
     setSelectedTicket(ticket);
     setTicketStatus(ticket.status || 'open');
     setTicketPriority(ticket.priority || 'medium');
+    setTicketDecision(ticket.decision || (ticket.status === 'resolved' ? 'RESOLVED' : 'NONE'));
+    setAdminResponse(ticket.admin_response || '');
     setAdminNotes(ticket.admin_notes || '');
   };
 
@@ -2288,7 +3930,7 @@ function SupportTicketsManagement() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-foreground">Support & Inquiries Queue</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Manage user requests, fake deal reports, and technical inquiries</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Manage user requests, validity extensions, free-edit requests, and reports</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -2315,7 +3957,7 @@ function SupportTicketsManagement() {
           />
         </div>
 
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
+        <Select value={filterStatus} onValueChange={(val) => { setFilterStatus(val); setTicketsPage(1); }}>
           <SelectTrigger className="h-10 rounded-xl">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -2328,12 +3970,13 @@ function SupportTicketsManagement() {
           </SelectContent>
         </Select>
 
-        <Select value={filterCategory} onValueChange={setFilterCategory}>
+        <Select value={filterCategory} onValueChange={(val) => { setFilterCategory(val); setTicketsPage(1); }}>
           <SelectTrigger className="h-10 rounded-xl">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="listing_support">Listing Extension & Edits</SelectItem>
             <SelectItem value="Scam/fraud report">Scam / Fraud</SelectItem>
             <SelectItem value="Fake deal">Fake Deal</SelectItem>
             <SelectItem value="Fake sale">Fake Sale</SelectItem>
@@ -2348,7 +3991,7 @@ function SupportTicketsManagement() {
 
       {/* Tickets List */}
       <div className="space-y-3">
-        {filteredTickets.map((ticket) => (
+        {filteredTickets.slice((ticketsPage - 1) * 20, ticketsPage * 20).map((ticket) => (
           <div key={ticket.id} className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm hover:border-violet-500/40 transition-all">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
               <div className="flex items-center gap-2 flex-wrap">
@@ -2356,6 +3999,21 @@ function SupportTicketsManagement() {
                 {getStatusBadge(ticket.status)}
                 {getPriorityBadge(ticket.priority)}
                 <Badge variant="outline" className="text-[11px]">{ticket.category}</Badge>
+                {ticket.request_type === 'expiry_extension' && (
+                  <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px] font-semibold">
+                    30d Extension Request
+                  </Badge>
+                )}
+                {ticket.request_type === 'free_edit' && (
+                  <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 text-[10px] font-semibold">
+                    Free Edit Request
+                  </Badge>
+                )}
+                {ticket.decision && (
+                  <Badge className="bg-violet-500/10 text-violet-400 border-violet-500/20 text-[10px]">
+                    Decision: {ticket.decision}
+                  </Badge>
+                )}
               </div>
 
               <span className="text-xs text-muted-foreground font-mono">
@@ -2364,9 +4022,16 @@ function SupportTicketsManagement() {
             </div>
 
             <h3 className="font-bold text-base text-foreground mb-1">{ticket.subject}</h3>
-            <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mb-3 leading-relaxed">
+            <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mb-2 leading-relaxed">
               {ticket.description}
             </p>
+
+            {ticket.admin_response && (
+              <div className="my-2 p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-lg text-xs space-y-1">
+                <p className="font-semibold text-violet-300">User-Facing Admin Remark:</p>
+                <p className="text-foreground">"{ticket.admin_response}"</p>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-border text-xs text-muted-foreground">
               <div>
@@ -2394,6 +4059,14 @@ function SupportTicketsManagement() {
             <p className="text-xs text-muted-foreground mt-1">There are no tickets matching your filter criteria.</p>
           </div>
         )}
+
+        <PaginationControls
+          currentPage={ticketsPage}
+          totalPages={Math.ceil(filteredTickets.length / 20) || 1}
+          totalRecords={filteredTickets.length}
+          pageSize={20}
+          onPageChange={setTicketsPage}
+        />
       </div>
 
       {/* Ticket Details & Action Dialog */}
@@ -2411,6 +4084,75 @@ function SupportTicketsManagement() {
 
           {selectedTicket && (
             <div className="space-y-4 py-2">
+              {/* One-Click Approval Action Banner for Lifecycle Requests */}
+              {selectedTicket.request_type === 'expiry_extension' && selectedTicket.status !== 'resolved' && (
+                <div className="p-3 bg-purple-500/10 dark:bg-purple-950/30 border border-purple-500/30 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      30-Day Listing Validity Extension Request
+                    </span>
+                    <Badge className="bg-purple-500/15 text-purple-800 dark:text-purple-300 border-purple-500/30 text-[10px] font-semibold">Action Required</Badge>
+                  </div>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                    User requested 30-day extension for listing <code className="font-mono text-violet-700 dark:text-violet-300">{selectedTicket.listing_id}</code>. Approving adds 30 days to the DB expiry date.
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8"
+                      disabled={actionLoading}
+                      onClick={() => handleQuickTicketAction('approve_extension')}
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" /> Approve +30d Extension
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-400 border-red-500/30 hover:bg-red-500/10 text-xs h-8"
+                      disabled={actionLoading}
+                      onClick={() => handleQuickTicketAction('reject_request')}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" /> Reject Extension
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {selectedTicket.request_type === 'free_edit' && selectedTicket.status !== 'resolved' && (
+                <div className="p-3 bg-cyan-500/10 dark:bg-cyan-950/30 border border-cyan-500/30 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-cyan-900 dark:text-cyan-300 flex items-center gap-1.5">
+                      <Edit className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                      One-Time Free Edit Allowance Request
+                    </span>
+                    <Badge className="bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 border-cyan-500/30 text-[10px] font-semibold">Action Required</Badge>
+                  </div>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                    User requested permission to edit listing <code className="font-mono text-violet-700 dark:text-violet-300">{selectedTicket.listing_id}</code>. Approving unlocks a 1-time free edit.
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs h-8"
+                      disabled={actionLoading}
+                      onClick={() => handleQuickTicketAction('approve_free_edit')}
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" /> Grant One-Time Free Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-400 border-red-500/30 hover:bg-red-500/10 text-xs h-8"
+                      disabled={actionLoading}
+                      onClick={() => handleQuickTicketAction('reject_request')}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" /> Reject Request
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="p-3 bg-muted/40 rounded-xl space-y-1.5 text-xs">
                 <div>
                   <span className="text-muted-foreground">Category: </span>
@@ -2443,7 +4185,7 @@ function SupportTicketsManagement() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label>Status</Label>
                   <Select value={ticketStatus} onValueChange={setTicketStatus}>
@@ -2455,6 +4197,23 @@ function SupportTicketsManagement() {
                       <SelectItem value="in_progress">In Progress</SelectItem>
                       <SelectItem value="resolved">Resolved</SelectItem>
                       <SelectItem value="closed">Closed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Admin Decision</Label>
+                  <Select value={ticketDecision} onValueChange={setTicketDecision}>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NONE">No Decision / Pending</SelectItem>
+                      <SelectItem value="RESOLVED">Issue Resolved</SelectItem>
+                      <SelectItem value="ACTION_TAKEN">Action Taken</SelectItem>
+                      <SelectItem value="INVESTIGATING">Under Investigation</SelectItem>
+                      <SelectItem value="NO_ACTION">No Action Required</SelectItem>
+                      <SelectItem value="DUPLICATE">Duplicate / Closed</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2475,14 +4234,36 @@ function SupportTicketsManagement() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Internal Moderation Notes</Label>
+              {/* User-Facing Admin Remark/Response */}
+              <div className="space-y-1.5 p-3.5 bg-violet-500/10 border border-violet-500/25 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-violet-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-violet-400" />
+                    User-Facing Admin Remark / Response
+                  </Label>
+                  <span className="text-[10px] text-muted-foreground">Visible to user on their dashboard</span>
+                </div>
                 <Textarea
-                  placeholder="Notes on actions taken, resolution details, or user communications..."
+                  placeholder="e.g. We have investigated the issue and resolved the payment gateway conflict. Please try again..."
+                  value={adminResponse}
+                  onChange={(e) => setAdminResponse(e.target.value)}
+                  rows={2}
+                  className="rounded-lg bg-card/80 text-xs"
+                />
+              </div>
+
+              {/* Internal Moderation Notes */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-muted-foreground">Internal Moderation Notes</Label>
+                  <span className="text-[10px] text-amber-400 font-mono">🔒 Admin-only (never visible to users)</span>
+                </div>
+                <Textarea
+                  placeholder="Private internal notes on actions taken, debug details, or moderator communications..."
                   value={adminNotes}
                   onChange={(e) => setAdminNotes(e.target.value)}
-                  rows={3}
-                  className="rounded-xl"
+                  rows={2}
+                  className="rounded-xl text-xs"
                 />
               </div>
             </div>
@@ -2513,17 +4294,32 @@ function PaymentsManagement() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [downloadingId, setDownloadingId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     fetchPayments();
-  }, [statusFilter]);
+  }, [statusFilter, searchQuery, page]);
 
   const fetchPayments = async () => {
     try {
       setLoading(true);
-      const params = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-      const response = await api.get(`/admin/payments${params}`);
-      setPayments(response.data);
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.append('status', statusFilter);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      params.append('page', page);
+      params.append('limit', '20');
+      const response = await api.get(`/admin/payments?${params.toString()}`);
+      if (Array.isArray(response.data)) {
+        setPayments(response.data);
+        setTotalCount(response.data.length);
+        setTotalPages(1);
+      } else {
+        setPayments(response.data.payments || []);
+        setTotalCount(response.data.total || 0);
+        setTotalPages(response.data.total_pages || 1);
+      }
     } catch (error) {
       console.error('Failed to fetch payments:', error);
       toast.error('Failed to fetch payments');
@@ -2697,6 +4493,18 @@ function PaymentsManagement() {
           </div>
         )}
       </div>
+
+      {totalCount > 0 && (
+        <div className="pt-2">
+          <PaginationControls
+            currentPage={page}
+            totalPages={totalPages}
+            totalItems={totalCount}
+            itemsPerPage={20}
+            onPageChange={setPage}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -3179,19 +4987,22 @@ function PagesManagement() {
 
 // Moderation & Filter Management Component
 function ModerationManagement() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [records, setRecords] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('records'); // 'records' or 'dictionary'
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'dictionary' ? 'dictionary' : 'records');
   
   // Records Filters
-  const [statusFilter, setStatusFilter] = useState('all');
+  const initialStatus = searchParams.get('status') || (searchParams.get('type') === 'auto-blocked' ? 'pending' : 'all');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [severityFilter, setSeverityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
   const [adminNotes, setAdminNotes] = useState('');
+  const [recordsPage, setRecordsPage] = useState(1);
 
   // Dictionary Management State
   const [terms, setTerms] = useState([]);
@@ -3202,6 +5013,7 @@ function ModerationManagement() {
   const [termCategory, setTermCategory] = useState('all');
   const [termSeverity, setTermSeverity] = useState('all');
   const [termStatus, setTermStatus] = useState('all');
+  const [termsPage, setTermsPage] = useState(1);
   
   // Modals for Dictionary CRUD
   const [showAddModal, setShowAddModal] = useState(false);
@@ -3219,6 +5031,24 @@ function ModerationManagement() {
   });
   const [importJsonText, setImportJsonText] = useState('');
   const [savingTerm, setSavingTerm] = useState(false);
+
+  // Sync state if URL query params change
+  useEffect(() => {
+    const urlStatus = searchParams.get('status');
+    const urlType = searchParams.get('type');
+    const urlTab = searchParams.get('tab');
+
+    if (urlTab && urlTab !== activeTab) {
+      setActiveTab(urlTab);
+    }
+    if (urlStatus && urlStatus !== statusFilter) {
+      setStatusFilter(urlStatus);
+      setRecordsPage(1);
+    } else if (urlType === 'auto-blocked' && statusFilter !== 'pending') {
+      setStatusFilter('pending');
+      setRecordsPage(1);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetchModerationRecords();
@@ -3465,9 +5295,15 @@ function ModerationManagement() {
     );
   });
 
+  const paginatedRecords = filteredRecords.slice((recordsPage - 1) * 20, recordsPage * 20);
+  const totalRecordsPages = Math.ceil(filteredRecords.length / 20) || 1;
+
+  const paginatedTerms = terms.slice((termsPage - 1) * 20, termsPage * 20);
+  const totalTermsPages = Math.ceil(terms.length / 20) || 1;
+
   return (
     <div className="space-y-6 w-full max-w-full overflow-hidden" data-testid="admin-moderation">
-      {/* Stats Header */}
+      {/* Stats Header with Interactive Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatsCard
           title="Auto-Blocked Items"
@@ -3475,6 +5311,14 @@ function ModerationManagement() {
           subtitle={`${stats?.pending || 0} pending admin review`}
           icon={Ban}
           color="bg-red-500"
+          onClick={() => {
+            setActiveTab('records');
+            setStatusFilter('pending');
+            setRecordsPage(1);
+            setSearchParams({ status: 'pending' });
+          }}
+          isActive={activeTab === 'records' && statusFilter === 'pending'}
+          ariaLabel="Filter to Auto-Blocked Items pending review"
         />
         <StatsCard
           title="Total Mod Events"
@@ -3482,6 +5326,16 @@ function ModerationManagement() {
           subtitle={`${stats?.approved || 0} approved, ${stats?.rejected || 0} confirmed`}
           icon={ShieldAlert}
           color="bg-violet-600"
+          onClick={() => {
+            setActiveTab('records');
+            setStatusFilter('all');
+            setSeverityFilter('all');
+            setTypeFilter('all');
+            setRecordsPage(1);
+            setSearchParams({ status: 'all' });
+          }}
+          isActive={activeTab === 'records' && statusFilter === 'all'}
+          ariaLabel="Show all moderation records"
         />
         <StatsCard
           title="Active Dictionary Terms"
@@ -3489,13 +5343,29 @@ function ModerationManagement() {
           subtitle="English, Malayalam & Manglish"
           icon={FileText}
           color="bg-cyan-500"
+          onClick={() => {
+            setActiveTab('dictionary');
+            setTermStatus('all');
+            setTermsPage(1);
+            setSearchParams({ tab: 'dictionary' });
+          }}
+          isActive={activeTab === 'dictionary'}
+          ariaLabel="View Active Multilingual Dictionary Terms"
         />
         <StatsCard
           title="Dismissed / False Positives"
           value={stats?.dismissed || 0}
-          subtitle="Reviewed by admin"
+          subtitle="Reviewed and approved as safe"
           icon={Check}
           color="bg-emerald-500"
+          onClick={() => {
+            setActiveTab('records');
+            setStatusFilter('approved');
+            setRecordsPage(1);
+            setSearchParams({ status: 'approved' });
+          }}
+          isActive={activeTab === 'records' && statusFilter === 'approved'}
+          ariaLabel="Filter to Dismissed and False Positive records"
         />
       </div>
 
@@ -3647,7 +5517,7 @@ function ModerationManagement() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {filteredRecords.map((rec) => (
+                    {paginatedRecords.map((rec) => (
                       <tr key={rec.id} className="hover:bg-muted/30 transition-colors">
                         <td className="p-4">
                           <div className="space-y-1.5">
@@ -3739,6 +5609,18 @@ function ModerationManagement() {
                 </table>
               </div>
             )}
+
+            {filteredRecords.length > 0 && (
+              <div className="p-4 border-t border-border">
+                <PaginationControls
+                  currentPage={recordsPage}
+                  totalPages={totalRecordsPages}
+                  totalItems={filteredRecords.length}
+                  itemsPerPage={20}
+                  onPageChange={setRecordsPage}
+                />
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -3750,13 +5632,16 @@ function ModerationManagement() {
               <Input
                 placeholder="Search terms, variants..."
                 value={termSearch}
-                onChange={(e) => setTermSearch(e.target.value)}
+                onChange={(e) => {
+                  setTermSearch(e.target.value);
+                  setTermsPage(1);
+                }}
                 className="pl-9"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              <Select value={termLanguage} onValueChange={setTermLanguage}>
+              <Select value={termLanguage} onValueChange={(val) => { setTermLanguage(val); setTermsPage(1); }}>
                 <SelectTrigger className="w-44 text-xs">
                   <SelectValue placeholder="Language" />
                 </SelectTrigger>
@@ -3769,27 +5654,26 @@ function ModerationManagement() {
                 </SelectContent>
               </Select>
 
-              <Select value={termCategory} onValueChange={setTermCategory}>
+              <Select value={termCategory} onValueChange={(val) => { setTermCategory(val); setTermsPage(1); }}>
                 <SelectTrigger className="w-36 text-xs">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
                   <SelectItem value="profanity">Profanity</SelectItem>
-                  <SelectItem value="slur">Slur</SelectItem>
-                  <SelectItem value="sexual">Sexual</SelectItem>
-                  <SelectItem value="insult">Insult</SelectItem>
-                  <SelectItem value="harassment">Harassment</SelectItem>
+                  <SelectItem value="scam">Scam / Fraud</SelectItem>
                   <SelectItem value="hate_speech">Hate Speech</SelectItem>
+                  <SelectItem value="prohibited_items">Prohibited</SelectItem>
+                  <SelectItem value="harassment">Harassment</SelectItem>
                 </SelectContent>
               </Select>
 
-              <Select value={termSeverity} onValueChange={setTermSeverity}>
-                <SelectTrigger className="w-32 text-xs">
+              <Select value={termSeverity} onValueChange={(val) => { setTermSeverity(val); setTermsPage(1); }}>
+                <SelectTrigger className="w-28 text-xs">
                   <SelectValue placeholder="Severity" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Severities</SelectItem>
+                  <SelectItem value="all">All Severity</SelectItem>
                   <SelectItem value="CRITICAL">Critical</SelectItem>
                   <SelectItem value="HIGH">High</SelectItem>
                   <SelectItem value="MEDIUM">Medium</SelectItem>
@@ -3797,16 +5681,36 @@ function ModerationManagement() {
                 </SelectContent>
               </Select>
 
-              <Select value={termStatus} onValueChange={setTermStatus}>
-                <SelectTrigger className="w-32 text-xs">
+              <Select value={termStatus} onValueChange={(val) => { setTermStatus(val); setTermsPage(1); }}>
+                <SelectTrigger className="w-28 text-xs">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="enabled">Enabled Only</SelectItem>
-                  <SelectItem value="disabled">Disabled Only</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
                 </SelectContent>
               </Select>
+
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingTerm(null);
+                  setTermForm({
+                    term: '',
+                    language: 'english',
+                    category: 'profanity',
+                    severity: 'HIGH',
+                    enabled: true,
+                    variants: '',
+                    transliterations: ''
+                  });
+                  setShowAddModal(true);
+                }}
+                className="bg-violet-600 hover:bg-violet-700 text-xs font-bold"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" /> Add Term
+              </Button>
             </div>
           </div>
 
@@ -3833,7 +5737,7 @@ function ModerationManagement() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {terms.map((t) => (
+                    {paginatedTerms.map((t) => (
                       <tr key={t.id} className="hover:bg-muted/30 transition-colors">
                         <td className="p-4">
                           <div className="font-bold font-mono text-foreground text-sm">{t.term}</div>
@@ -3916,6 +5820,18 @@ function ModerationManagement() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {terms.length > 0 && (
+              <div className="p-4 border-t border-border">
+                <PaginationControls
+                  currentPage={termsPage}
+                  totalPages={totalTermsPages}
+                  totalItems={terms.length}
+                  itemsPerPage={20}
+                  onPageChange={setTermsPage}
+                />
               </div>
             )}
           </div>
@@ -4224,82 +6140,237 @@ function ModerationManagement() {
   );
 }
 
-// Audit Logs Component
+// Upgraded Audit Logs Component
 function AuditLogsManagement() {
   const [logs, setLogs] = useState([]);
+  const [stats, setStats] = useState({ total: 0, listingAudits: 0, userAudits: 0, modAudits: 0, reportAudits: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [total, setTotal] = useState(0);
   const [entityFilter, setEntityFilter] = useState('all');
   const [actionFilter, setActionFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  
+  // Inspection Modal States
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [copiedJson, setCopiedJson] = useState(false);
+
+  // Fetch Audit Stats
+  const fetchStats = async () => {
+    try {
+      const res = await api.get('/admin/audit-logs/stats');
+      if (res.data) {
+        setStats(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch audit stats:', err);
+    }
+  };
 
   useEffect(() => {
-    fetchLogs();
-  }, [entityFilter, actionFilter, searchQuery]);
+    fetchStats();
+  }, []);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (entityFilter !== 'all') params.append('entity_type', entityFilter);
       if (actionFilter !== 'all') params.append('action', actionFilter);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
-      params.append('limit', '100');
+      params.append('page', page);
+      params.append('limit', '20');
 
       const res = await api.get(`/admin/audit-logs?${params.toString()}`);
-      setLogs(res.data.logs || []);
-      setTotal(res.data.total || 0);
-    } catch (error) {
-      console.error('Failed to fetch audit logs:', error);
+      const fetchedLogs = res.data.logs || res.data.items || [];
+      const totalCount = res.data.total || 0;
+      setLogs(fetchedLogs);
+      setTotal(totalCount);
+      setTotalPages(res.data.total_pages || Math.ceil(totalCount / 20) || 1);
+    } catch (err) {
+      console.error('Failed to fetch audit logs:', err);
+      setError('Unable to load administrative audit logs. Please try again.');
       toast.error('Failed to load audit logs');
     } finally {
       setLoading(false);
     }
+  }, [entityFilter, actionFilter, searchQuery, page]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  const handleEntityChange = (val) => {
+    setEntityFilter(val);
+    setPage(1);
   };
 
-  const getActionBadge = (action) => {
-    if (action.includes('DELETED')) {
-      return <Badge variant="destructive" className="bg-red-500 text-white">{action}</Badge>;
+  const handleActionChange = (val) => {
+    setActionFilter(val);
+    setPage(1);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+    setPage(1);
+  };
+
+  const handleResetFilters = () => {
+    setEntityFilter('all');
+    setActionFilter('all');
+    setSearchQuery('');
+    setPage(1);
+  };
+
+  const copyLogToClipboard = (log) => {
+    try {
+      const jsonStr = JSON.stringify(log, null, 2);
+      navigator.clipboard.writeText(jsonStr);
+      setCopiedJson(true);
+      toast.success('Audit record JSON copied to clipboard');
+      setTimeout(() => setCopiedJson(false), 2000);
+    } catch (err) {
+      toast.error('Failed to copy JSON');
     }
-    if (action.includes('RESTORED') || action.includes('APPROVED')) {
-      return <Badge className="bg-emerald-500/20 text-emerald-500 border-emerald-500/30">{action}</Badge>;
+  };
+
+  const getActionBadge = (action = '') => {
+    const act = String(action).toUpperCase();
+    if (act.includes('DELETED') || act.includes('SUSPENDED') || act.includes('BANNED') || act.includes('REJECTED')) {
+      return <Badge className="bg-red-500/15 text-red-400 border-red-500/30 font-semibold">{action}</Badge>;
     }
-    if (action.includes('CREATED') || action.includes('ADDED')) {
-      return <Badge className="bg-cyan-500/20 text-cyan-500 border-cyan-500/30">{action}</Badge>;
+    if (act.includes('RESTORED') || act.includes('APPROVED') || act.includes('VERIFIED')) {
+      return <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-semibold">{action}</Badge>;
     }
-    if (action.includes('SOLD')) {
-      return <Badge className="bg-purple-500/20 text-purple-500 border-purple-500/30">{action}</Badge>;
+    if (act.includes('CREATED') || act.includes('ADDED')) {
+      return <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 font-semibold">{action}</Badge>;
+    }
+    if (act.includes('SOLD') || act.includes('UPGRADED') || act.includes('EXTENDED')) {
+      return <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 font-semibold">{action}</Badge>;
+    }
+    if (act.includes('EDITED') || act.includes('UPDATED')) {
+      return <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 font-semibold">{action}</Badge>;
     }
     return <Badge variant="outline">{action}</Badge>;
   };
 
+  const formatJson = (val) => {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return val;
+      }
+    }
+    return JSON.stringify(val, null, 2);
+  };
+
   return (
-    <div className="space-y-6 w-full max-w-full overflow-hidden" data-testid="admin-audit-logs">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+    <div className="space-y-6 w-full max-w-full" data-testid="admin-audit-logs">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold">Platform Audit History</h2>
-          <p className="text-xs text-muted-foreground">Immutable administrative history of all listing modifications, soft-deletes, restorations, sales, and dictionary alterations.</p>
+          <h2 className="text-xl font-bold text-foreground">Platform Audit History</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Immutable administrative history of all listing modifications, user suspensions, sales, trust reviews, and platform alterations.</p>
         </div>
-        <Badge variant="outline" className="text-xs self-start sm:self-auto font-mono">
-          {total} Total Audit Records
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => { fetchLogs(); fetchStats(); }} className="h-8 text-xs font-semibold gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </Button>
+          <Badge variant="outline" className="text-xs font-mono">
+            {total} Total Records
+          </Badge>
+        </div>
       </div>
 
-      {/* Controls & Filters */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
+      {/* Overview Stat Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div 
+          onClick={() => { handleEntityChange('all'); handleActionChange('all'); }}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            entityFilter === 'all' && actionFilter === 'all' ? 'bg-violet-500/10 border-violet-500/40 ring-1 ring-violet-500/30' : 'bg-card border-border hover:border-violet-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground font-medium">Total Audits</span>
+            <History className="w-4 h-4 text-violet-400" />
+          </div>
+          <div className="text-xl font-bold text-foreground mt-1.5">{stats.total || total}</div>
+        </div>
+
+        <div 
+          onClick={() => handleEntityChange('listing')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            entityFilter === 'listing' ? 'bg-purple-500/15 border-purple-500/40 ring-1 ring-purple-500/30' : 'bg-card border-border hover:border-purple-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-purple-400 font-medium">Listings Audits</span>
+            <Package className="w-4 h-4 text-purple-400" />
+          </div>
+          <div className="text-xl font-bold text-purple-400 mt-1.5">{stats.listingAudits || 0}</div>
+        </div>
+
+        <div 
+          onClick={() => handleEntityChange('user')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            entityFilter === 'user' ? 'bg-cyan-500/15 border-cyan-500/40 ring-1 ring-cyan-500/30' : 'bg-card border-border hover:border-cyan-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-cyan-400 font-medium">User Changes</span>
+            <Users className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="text-xl font-bold text-cyan-400 mt-1.5">{stats.userAudits || 0}</div>
+        </div>
+
+        <div 
+          onClick={() => handleEntityChange('moderation_term')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            entityFilter === 'moderation_term' ? 'bg-amber-500/15 border-amber-500/40 ring-1 ring-amber-500/30' : 'bg-card border-border hover:border-amber-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-amber-400 font-medium">Policy Rules</span>
+            <Shield className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="text-xl font-bold text-amber-400 mt-1.5">{stats.modAudits || 0}</div>
+        </div>
+
+        <div 
+          onClick={() => handleEntityChange('report')}
+          className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+            entityFilter === 'report' ? 'bg-rose-500/15 border-rose-500/40 ring-1 ring-rose-500/30' : 'bg-card border-border hover:border-rose-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-rose-400 font-medium">Report Actions</span>
+            <Flag className="w-4 h-4 text-rose-400" />
+          </div>
+          <div className="text-xl font-bold text-rose-400 mt-1.5">{stats.reportAudits || 0}</div>
+        </div>
+      </div>
+
+      {/* Controls & Filters Bar */}
+      <div className="bg-card border border-border rounded-xl p-3.5 flex flex-col md:flex-row gap-3 items-center justify-between">
         <div className="relative w-full md:w-80">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by action, email, ID..."
+            placeholder="Search action, actor, entity ID, reason..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            onChange={handleSearchChange}
+            className="pl-9 h-9 text-xs rounded-xl"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          <Select value={entityFilter} onValueChange={setEntityFilter}>
-            <SelectTrigger className="w-36 text-xs">
+          <Select value={entityFilter} onValueChange={handleEntityChange}>
+            <SelectTrigger className="w-40 text-xs h-9 rounded-xl">
               <SelectValue placeholder="Entity Type" />
             </SelectTrigger>
             <SelectContent>
@@ -4309,11 +6380,12 @@ function AuditLogsManagement() {
               <SelectItem value="moderation_term">Moderation Terms</SelectItem>
               <SelectItem value="conversation">Conversations</SelectItem>
               <SelectItem value="report">Reports</SelectItem>
+              <SelectItem value="kyc">KYC / Verification</SelectItem>
             </SelectContent>
           </Select>
 
-          <Select value={actionFilter} onValueChange={setActionFilter}>
-            <SelectTrigger className="w-44 text-xs">
+          <Select value={actionFilter} onValueChange={handleActionChange}>
+            <SelectTrigger className="w-48 text-xs h-9 rounded-xl">
               <SelectValue placeholder="Action Type" />
             </SelectTrigger>
             <SelectContent>
@@ -4324,76 +6396,705 @@ function AuditLogsManagement() {
               <SelectItem value="POST_RESTORED">POST_RESTORED</SelectItem>
               <SelectItem value="POST_ARCHIVED">POST_ARCHIVED</SelectItem>
               <SelectItem value="LISTING_SOLD">LISTING_SOLD</SelectItem>
+              <SelectItem value="USER_SUSPENDED">USER_SUSPENDED</SelectItem>
+              <SelectItem value="USER_UNSUSPENDED">USER_UNSUSPENDED</SelectItem>
+              <SelectItem value="KYC_APPROVED">KYC_APPROVED</SelectItem>
+              <SelectItem value="KYC_REJECTED">KYC_REJECTED</SelectItem>
+              <SelectItem value="KYC_REVOKED">KYC_REVOKED</SelectItem>
               <SelectItem value="MODERATION_TERM_ADDED">MODERATION_TERM_ADDED</SelectItem>
               <SelectItem value="MODERATION_TERM_UPDATED">MODERATION_TERM_UPDATED</SelectItem>
               <SelectItem value="MODERATION_TERM_DELETED">MODERATION_TERM_DELETED</SelectItem>
             </SelectContent>
           </Select>
+
+          {(entityFilter !== 'all' || actionFilter !== 'all' || searchQuery) && (
+            <Button variant="ghost" size="sm" onClick={handleResetFilters} className="h-9 text-xs font-semibold text-muted-foreground hover:text-foreground">
+              Reset Filters
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Logs Table */}
+      {/* Logs Table / Content Area */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+        {loading ? (
+          <div className="p-16 flex flex-col items-center justify-center">
+            <Loader2 className="w-9 h-9 animate-spin text-violet-500 mb-3" />
+            <p className="text-sm font-medium text-foreground">Loading audit records...</p>
+            <p className="text-xs text-muted-foreground mt-1">Retrieving immutable administrative log trail</p>
+          </div>
+        ) : error ? (
+          <div className="p-12 text-center">
+            <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-red-400" />
+            <p className="font-bold text-lg text-foreground">Unable to Load Audit Logs</p>
+            <p className="text-xs text-muted-foreground mt-1 mb-4">{error}</p>
+            <Button size="sm" onClick={fetchLogs} className="bg-violet-600 hover:bg-violet-700">
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Retry Request
+            </Button>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="p-16 text-center text-muted-foreground">
+            <History className="w-12 h-12 mx-auto mb-3 text-muted-foreground/40" />
+            <p className="font-bold text-base text-foreground">No Audit Records Found</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {searchQuery || entityFilter !== 'all' || actionFilter !== 'all'
+                ? 'No records match your selected filter criteria.'
+                : 'Actions performed on listings, accounts, and moderation terms will be recorded here.'}
+            </p>
+            {(entityFilter !== 'all' || actionFilter !== 'all' || searchQuery) && (
+              <Button size="sm" variant="outline" onClick={handleResetFilters} className="mt-4 text-xs font-semibold">
+                Clear Filters
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="w-full">
+            <div className="hidden md:grid grid-cols-12 gap-3 px-5 py-3.5 bg-muted/50 border-b border-border text-xs uppercase font-semibold text-muted-foreground">
+              <div className="col-span-2">Date & Time</div>
+              <div className="col-span-2">Actor / Initiator</div>
+              <div className="col-span-2">Action</div>
+              <div className="col-span-2">Entity Target</div>
+              <div className="col-span-3">Reason / Details</div>
+              <div className="col-span-1 text-right">Inspect</div>
+            </div>
+
+            <div className="divide-y divide-border">
+              {logs.map((log) => (
+                <div key={log.id} className="p-4 sm:px-5 sm:py-4 hover:bg-muted/20 transition-colors">
+                  {/* Desktop Layout */}
+                  <div className="hidden md:grid grid-cols-12 gap-3 items-start">
+                    {/* Timestamp */}
+                    <div className="col-span-2 text-xs">
+                      <span className="font-semibold text-foreground block">
+                        {new Date(log.created_at).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground font-mono block mt-0.5">
+                        {new Date(log.created_at).toLocaleTimeString('en-IN', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })}
+                      </span>
+                    </div>
+
+                    {/* Actor */}
+                    <div className="col-span-2 text-xs">
+                      <div className="font-semibold text-foreground truncate" title={log.admin_email || log.user_email || 'System'}>
+                        {log.admin_email || log.user_email || 'System / Platform'}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                        {log.admin_id ? `Admin #${log.admin_id.slice(-6)}` : (log.user_id ? `User #${log.user_id.slice(-6)}` : 'Automated')}
+                      </div>
+                    </div>
+
+                    {/* Action */}
+                    <div className="col-span-2">
+                      {getActionBadge(log.action)}
+                    </div>
+
+                    {/* Entity */}
+                    <div className="col-span-2 text-xs">
+                      <span className="font-semibold capitalize text-foreground block">{log.entity_type}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground/80 block mt-0.5 truncate" title={log.entity_id}>
+                        ID: {log.entity_id ? log.entity_id.slice(-10) : 'N/A'}
+                      </span>
+                    </div>
+
+                    {/* Reason / Details with Multi-line Formatting */}
+                    <div className="col-span-3 text-xs pr-2">
+                      <p className="text-foreground font-medium leading-relaxed break-words">
+                        {log.reason || 'Administrative action performed.'}
+                      </p>
+
+                      {log.new_state && (
+                        <div className="mt-2 p-2 rounded-lg bg-black/40 border border-border/60 font-mono text-[11px] text-violet-300 overflow-x-auto max-h-32">
+                          <span className="text-muted-foreground text-[10px] block font-sans font-semibold mb-0.5">State Change:</span>
+                          <pre className="whitespace-pre-wrap font-mono leading-tight">{formatJson(log.new_state)}</pre>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Inspect Button */}
+                    <div className="col-span-1 text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSelectedLog(log)}
+                        className="h-8 px-2.5 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 text-xs font-semibold gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Details
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Mobile & Tablet Card Layout */}
+                  <div className="md:hidden space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {getActionBadge(log.action)}
+                        <span className="text-xs font-bold text-foreground capitalize">
+                          {log.entity_type}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+                        {new Date(log.created_at).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">Actor:</span> {log.admin_email || log.user_email || 'System'}
+                      {log.entity_id && <span className="ml-2 font-mono text-[11px]">({log.entity_id.slice(-8)})</span>}
+                    </div>
+
+                    <p className="text-xs text-foreground font-medium leading-relaxed">
+                      {log.reason || 'Administrative action recorded.'}
+                    </p>
+
+                    {log.new_state && (
+                      <div className="p-2 rounded-lg bg-black/40 border border-border/60 font-mono text-[11px] text-violet-300 overflow-x-auto max-h-24">
+                        <pre className="whitespace-pre-wrap font-mono leading-tight">{formatJson(log.new_state)}</pre>
+                      </div>
+                    )}
+
+                    <div className="pt-1 flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedLog(log)}
+                        className="h-7 text-xs font-semibold text-violet-400 border-violet-500/30 gap-1"
+                      >
+                        <Eye className="w-3 h-3" /> View Full Record
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Pagination Controls */}
+      {total > 0 && (
+        <div className="pt-2">
+          <PaginationControls
+            currentPage={page}
+            totalPages={totalPages}
+            totalRecords={total}
+            pageSize={20}
+            onPageChange={setPage}
+          />
+        </div>
+      )}
+
+      {/* Full Audit Record Inspection Modal */}
+      <Dialog open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
+        <DialogContent className="max-w-2xl rounded-2xl bg-card border border-border">
+          <DialogHeader>
+            <div className="flex items-center justify-between pr-6">
+              <DialogTitle className="flex items-center gap-2 text-foreground">
+                <FileSearch className="w-5 h-5 text-violet-400" />
+                Audit Record Details
+              </DialogTitle>
+              {selectedLog && getActionBadge(selectedLog.action)}
+            </div>
+            <DialogDescription>
+              Complete cryptographic audit trail information and full modification diff payload.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedLog && (
+            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+              {/* Record Summary Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 bg-muted/40 rounded-xl border border-border/60 text-xs">
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Audit Record ID</span>
+                  <span className="font-mono font-bold text-foreground text-xs mt-0.5 block truncate" title={selectedLog.id}>
+                    {selectedLog.id}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Timestamp</span>
+                  <span className="font-semibold text-foreground text-xs mt-0.5 block">
+                    {new Date(selectedLog.created_at).toLocaleString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Actor Identity</span>
+                  <span className="font-semibold text-foreground text-xs mt-0.5 block truncate" title={selectedLog.admin_email || selectedLog.user_email || 'System'}>
+                    {selectedLog.admin_email || selectedLog.user_email || 'System'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Entity Type</span>
+                  <span className="font-semibold capitalize text-foreground text-xs mt-0.5 block">
+                    {selectedLog.entity_type}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Entity ID</span>
+                  <span className="font-mono text-foreground text-xs mt-0.5 block truncate" title={selectedLog.entity_id}>
+                    {selectedLog.entity_id || 'N/A'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Actor Role/ID</span>
+                  <span className="font-mono text-foreground text-xs mt-0.5 block truncate">
+                    {selectedLog.admin_id ? `Admin: ${selectedLog.admin_id}` : (selectedLog.user_id ? `User: ${selectedLog.user_id}` : 'Platform')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Reason / Admin Memo */}
+              <div className="p-3.5 bg-card border border-border rounded-xl">
+                <span className="text-xs text-muted-foreground font-semibold block mb-1">Action Reason / Memo:</span>
+                <p className="text-sm font-medium text-foreground leading-relaxed">
+                  {selectedLog.reason || 'Standard administrative operation performed.'}
+                </p>
+              </div>
+
+              {/* State Diff / JSON Payloads */}
+              {selectedLog.previous_state && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                    <Code className="w-3.5 h-3.5" /> Previous State (Before Change):
+                  </span>
+                  <div className="p-3 rounded-xl bg-black/60 border border-border font-mono text-xs text-amber-300/90 max-h-48 overflow-auto">
+                    <pre className="whitespace-pre-wrap font-mono leading-relaxed">{formatJson(selectedLog.previous_state)}</pre>
+                  </div>
+                </div>
+              )}
+
+              {selectedLog.new_state && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-semibold text-violet-400 flex items-center gap-1.5">
+                    <Code className="w-3.5 h-3.5" /> New / Applied State:
+                  </span>
+                  <div className="p-3 rounded-xl bg-black/60 border border-border font-mono text-xs text-violet-300 max-h-56 overflow-auto">
+                    <pre className="whitespace-pre-wrap font-mono leading-relaxed">{formatJson(selectedLog.new_state)}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-between sm:justify-between pt-2 border-t border-border">
+            {selectedLog && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyLogToClipboard(selectedLog)}
+                className="text-xs font-semibold gap-1.5"
+              >
+                {copiedJson ? (
+                  <>
+                    <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> Copied Record!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" /> Copy Complete JSON
+                  </>
+                )}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setSelectedLog(null)} className="rounded-xl text-xs">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Blog Management Component
+function BlogManagement() {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  
+  // Dialog states
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('edit'); // 'edit' | 'preview'
+
+  // Form states
+  const [formData, setFormData] = useState({
+    title: '',
+    slug: '',
+    excerpt: '',
+    category: 'Announcements',
+    cover_image: '',
+    tags: '',
+    content: '',
+    author_name: '',
+    status: 'published',
+    seo_title: '',
+    seo_description: ''
+  });
+
+  const categories = [
+    'Announcements',
+    'Seller Guides',
+    'Buyer Guides',
+    'Safety Guides',
+    'Scam Awareness',
+    'Technical Guides',
+    'Console Guides',
+    'PC Building',
+    'Community'
+  ];
+
+  const fetchPosts = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/blog/posts?limit=100');
+      setPosts(res.data || []);
+    } catch (error) {
+      console.error('Failed to fetch blog posts:', error);
+      toast.error('Failed to load blog posts');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPosts();
+  }, []);
+
+  const generateSlug = (title) => {
+    return title
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  };
+
+  const handleTitleChange = (e) => {
+    const val = e.target.value;
+    setFormData(prev => ({
+      ...prev,
+      title: val,
+      slug: !selectedPost ? generateSlug(val) : prev.slug,
+      seo_title: !selectedPost || !prev.seo_title ? val : prev.seo_title
+    }));
+  };
+
+  const handleOpenCreate = () => {
+    setSelectedPost(null);
+    setActiveTab('edit');
+    setFormData({
+      title: '',
+      slug: '',
+      excerpt: '',
+      category: 'Announcements',
+      cover_image: '',
+      tags: '',
+      content: '',
+      author_name: 'GGS Editorial Team',
+      status: 'published',
+      seo_title: '',
+      seo_description: ''
+    });
+    setIsCreateOpen(true);
+  };
+
+  const handleOpenEdit = (post) => {
+    setSelectedPost(post);
+    setActiveTab('edit');
+    setFormData({
+      title: post.title || '',
+      slug: post.slug || '',
+      excerpt: post.excerpt || '',
+      category: post.category || 'Announcements',
+      cover_image: post.cover_image || '',
+      tags: Array.isArray(post.tags) ? post.tags.join(', ') : (post.tags || ''),
+      content: post.content || '',
+      author_name: post.author_name || 'GGS Editorial Team',
+      status: post.status || 'published',
+      seo_title: post.seo_title || post.title || '',
+      seo_description: post.seo_description || post.excerpt || ''
+    });
+    setIsEditOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setIsCreateOpen(false);
+    setIsEditOpen(false);
+  };
+
+  const handleOpenDelete = (post) => {
+    setSelectedPost(post);
+    setIsDeleteOpen(true);
+  };
+
+  const handleCreatePost = async (e) => {
+    e.preventDefault();
+    if (!formData.title.trim() || !formData.slug.trim() || !formData.content.trim()) {
+      toast.error('Please fill in title, slug, and content');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const tagsArray = formData.tags
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      await api.post('/admin/blog/posts', {
+        ...formData,
+        tags: tagsArray
+      });
+      toast.success('Blog post created & saved successfully');
+      handleCloseDialog();
+      fetchPosts();
+    } catch (error) {
+      console.error('Create blog post error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to create blog post');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdatePost = async (e) => {
+    e.preventDefault();
+    if (!selectedPost) return;
+    if (!formData.title.trim() || !formData.slug.trim() || !formData.content.trim()) {
+      toast.error('Please fill in title, slug, and content');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const tagsArray = formData.tags
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      await api.put(`/admin/blog/posts/${selectedPost.id || selectedPost.slug}`, {
+        ...formData,
+        tags: tagsArray
+      });
+      toast.success('Blog post changes saved successfully');
+      handleCloseDialog();
+      fetchPosts();
+    } catch (error) {
+      console.error('Update blog post error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to update blog post');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeletePost = async () => {
+    if (!selectedPost) return;
+    setSubmitting(true);
+    try {
+      await api.delete(`/admin/blog/posts/${selectedPost.id || selectedPost.slug}`);
+      toast.success('Blog post deleted successfully');
+      setIsDeleteOpen(false);
+      fetchPosts();
+    } catch (error) {
+      console.error('Delete blog post error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to delete blog post');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const filteredPosts = posts.filter(post => {
+    const matchesSearch =
+      !searchQuery.trim() ||
+      post.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.slug?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.category?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCat = categoryFilter === 'all' || post.category === categoryFilter;
+    const matchesStatus = statusFilter === 'all' || (post.status || 'published') === statusFilter;
+    return matchesSearch && matchesCat && matchesStatus;
+  });
+
+  return (
+    <div className="space-y-6 w-full max-w-full overflow-hidden" data-testid="admin-blog-management">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-xl font-bold">Blog & Article Management</h2>
+          <p className="text-xs text-muted-foreground">
+            Create, edit, manage, and publish guides, announcements, and fraud prevention articles.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleOpenCreate}
+            className="bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs h-9"
+          >
+            <Plus className="w-4 h-4 mr-1.5" /> New Blog Post
+          </Button>
+        </div>
+      </div>
+
+      {/* Controls & Search */}
+      <div className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search posts by title, slug, tag..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 text-xs"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-40 text-xs">
+              <SelectValue placeholder="All Categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map(c => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-36 text-xs">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="published">Published</SelectItem>
+              <SelectItem value="draft">Drafts</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
         {loading ? (
           <div className="p-12 flex justify-center items-center">
             <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
           </div>
-        ) : logs.length === 0 ? (
+        ) : filteredPosts.length === 0 ? (
           <div className="p-12 text-center text-muted-foreground">
-            <RotateCcw className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
-            <p className="font-bold text-lg text-foreground">No Audit Records Found</p>
-            <p className="text-sm mt-1">Actions performed on listings, accounts, and moderation terms will be recorded here.</p>
+            <BookOpen className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
+            <p className="font-bold text-lg text-foreground">No Blog Posts Found</p>
+            <p className="text-sm mt-1">Create your first blog post using the button above.</p>
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[850px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="p-4">Timestamp</th>
-                  <th className="p-4">Action</th>
-                  <th className="p-4">Entity</th>
-                  <th className="p-4">Actor</th>
-                  <th className="p-4">Reason / Details</th>
+                  <th className="p-4">Post / Title</th>
+                  <th className="p-4">Category</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4">Author</th>
+                  <th className="p-4">Views</th>
+                  <th className="p-4">Last Updated</th>
+                  <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-muted/30 transition-colors">
+                {filteredPosts.map((post) => (
+                  <tr key={post.id || post.slug} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        {post.cover_image && (
+                          <img
+                            src={post.cover_image}
+                            alt=""
+                            className="w-10 h-10 rounded-lg object-cover bg-muted shrink-0 border border-border"
+                          />
+                        )}
+                        <div className="min-w-0 max-w-sm">
+                          <p className="font-bold text-foreground text-xs sm:text-sm line-clamp-1">{post.title}</p>
+                          <p className="font-mono text-[11px] text-muted-foreground truncate">/blog/{post.slug}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-4 whitespace-nowrap">
+                      <Badge variant="outline" className="text-xs bg-violet-500/10 text-violet-400 border-violet-500/20">
+                        {post.category}
+                      </Badge>
+                    </td>
+                    <td className="p-4 whitespace-nowrap">
+                      {(post.status || 'published') === 'published' ? (
+                        <Badge className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                          Published
+                        </Badge>
+                      ) : (
+                        <Badge className="text-[10px] bg-amber-500/10 text-amber-400 border-amber-500/20">
+                          Draft
+                        </Badge>
+                      )}
+                    </td>
                     <td className="p-4 whitespace-nowrap text-xs text-muted-foreground">
-                      {new Date(log.created_at).toLocaleString('en-IN', {
+                      {post.author_name || 'GGS Team'}
+                    </td>
+                    <td className="p-4 whitespace-nowrap text-xs font-mono text-muted-foreground">
+                      {post.views_count || 0}
+                    </td>
+                    <td className="p-4 whitespace-nowrap text-xs text-muted-foreground">
+                      {new Date(post.updated_at || post.created_at || Date.now()).toLocaleDateString('en-IN', {
                         day: 'numeric',
                         month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
+                        year: 'numeric'
                       })}
                     </td>
-
-                    <td className="p-4">
-                      {getActionBadge(log.action)}
-                    </td>
-
-                    <td className="p-4">
-                      <div className="font-medium text-foreground capitalize">{log.entity_type}</div>
-                      <div className="font-mono text-[11px] text-muted-foreground truncate max-w-[150px]">{log.entity_id}</div>
-                    </td>
-
-                    <td className="p-4">
-                      <div className="text-xs font-semibold text-foreground">
-                        {log.admin_email || log.user_email || 'System / Platform'}
+                    <td className="p-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Link
+                          to={post.category === 'Scam Awareness' || post.tags?.includes('Safety') ? `/blog/safety/${post.slug}` : `/blog/${post.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="View Public Post">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEdit(post)}
+                          className="h-8 w-8 text-violet-400 hover:text-violet-300 hover:bg-violet-500/10"
+                          title="Edit Blog Post"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenDelete(post)}
+                          className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                          title="Delete Post"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {log.admin_id ? `Admin (${log.admin_id.slice(0, 8)})` : (log.user_id ? `User (${log.user_id.slice(0, 8)})` : 'Automated')}
-                      </div>
-                    </td>
-
-                    <td className="p-4 max-w-sm">
-                      <p className="text-xs text-foreground font-medium">{log.reason || 'Standard operation'}</p>
-                      {log.new_state && (
-                        <div className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">
-                          New: {typeof log.new_state === 'object' ? JSON.stringify(log.new_state).substring(0, 80) : String(log.new_state)}
-                        </div>
-                      )}
                     </td>
                   </tr>
                 ))}
@@ -4402,6 +7103,255 @@ function AuditLogsManagement() {
           </div>
         )}
       </div>
+
+      {/* Create / Edit Dialog */}
+      <Dialog open={isCreateOpen || isEditOpen} onOpenChange={(open) => { if (!open) handleCloseDialog(); }}>
+        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between pr-6">
+              <div>
+                <DialogTitle>{isCreateOpen ? 'Create New Blog Post' : `Edit: ${selectedPost?.title || 'Blog Post'}`}</DialogTitle>
+                <DialogDescription>
+                  {isCreateOpen ? 'Publish a new announcement, buying guide, or safety article.' : 'Update blog content, SEO tags, category, and metadata.'}
+                </DialogDescription>
+              </div>
+              <div className="flex bg-muted rounded-lg p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('edit')}
+                  className={`px-3 py-1 rounded-md font-medium transition-all ${activeTab === 'edit' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Edit Form
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('preview')}
+                  className={`px-3 py-1 rounded-md font-medium transition-all ${activeTab === 'preview' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Live Preview
+                </button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {activeTab === 'edit' ? (
+            <form onSubmit={isCreateOpen ? handleCreatePost : handleUpdatePost} className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Post Title *</Label>
+                <Input
+                  value={formData.title}
+                  onChange={handleTitleChange}
+                  placeholder="e.g. How to Check a Used GPU Before Buying"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">URL Slug *</Label>
+                  <Input
+                    value={formData.slug}
+                    onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
+                    placeholder="e.g. how-to-check-used-gpu"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Category *</Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(val) => setFormData(prev => ({ ...prev, category: val }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map(c => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Publish Status</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(val) => setFormData(prev => ({ ...prev, status: val }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="published">Published</SelectItem>
+                      <SelectItem value="draft">Draft (Hidden)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Author Name</Label>
+                  <Input
+                    value={formData.author_name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, author_name: e.target.value }))}
+                    placeholder="e.g. GGS Safety & Hardware Team"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Tags (comma-separated)</Label>
+                  <Input
+                    value={formData.tags}
+                    onChange={(e) => setFormData(prev => ({ ...prev, tags: e.target.value }))}
+                    placeholder="GPU, Hardware, Safety, Tips"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Cover Image URL</Label>
+                <Input
+                  value={formData.cover_image}
+                  onChange={(e) => setFormData(prev => ({ ...prev, cover_image: e.target.value }))}
+                  placeholder="https://images.unsplash.com/..."
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Short Excerpt / Summary</Label>
+                <Input
+                  value={formData.excerpt}
+                  onChange={(e) => setFormData(prev => ({ ...prev, excerpt: e.target.value }))}
+                  placeholder="A brief 1-2 sentence preview for search and cards..."
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Content (Markdown Supported) *</Label>
+                  <span className="text-[10px] text-muted-foreground">Supports # Headings, lists, bold, and code</span>
+                </div>
+                <Textarea
+                  value={formData.content}
+                  onChange={(e) => setFormData(prev => ({ ...prev, content: e.target.value }))}
+                  placeholder="# Article Title&#10;&#10;Write your article here..."
+                  rows={12}
+                  className="font-mono text-xs"
+                  required
+                />
+              </div>
+
+              {/* SEO Section */}
+              <div className="pt-2 border-t border-border/60">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Search Engine Optimization (SEO)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">SEO Meta Title</Label>
+                    <Input
+                      value={formData.seo_title}
+                      onChange={(e) => setFormData(prev => ({ ...prev, seo_title: e.target.value }))}
+                      placeholder="Custom page title for Google & SEO"
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">SEO Meta Description</Label>
+                    <Input
+                      value={formData.seo_description}
+                      onChange={(e) => setFormData(prev => ({ ...prev, seo_description: e.target.value }))}
+                      placeholder="Meta description for search snippets"
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="pt-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseDialog}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold"
+                >
+                  {submitting && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
+                  {isCreateOpen ? 'Publish Post' : 'Save Changes'}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <div className="py-4 space-y-6">
+              <div className="p-4 bg-muted/40 border border-border rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge className="text-xs">{formData.category}</Badge>
+                  <span className="text-xs text-muted-foreground">• By {formData.author_name || 'GGS Team'}</span>
+                  <span className="text-xs text-muted-foreground">• {formData.status}</span>
+                </div>
+                <h2 className="text-2xl font-bold text-foreground mb-2">{formData.title || 'Untitled Article'}</h2>
+                {formData.excerpt && <p className="text-sm text-muted-foreground italic mb-4">{formData.excerpt}</p>}
+                {formData.cover_image && (
+                  <img
+                    src={formData.cover_image}
+                    alt=""
+                    className="w-full max-h-60 object-cover rounded-lg mb-4 border border-border"
+                  />
+                )}
+                <div className="prose dark:prose-invert max-w-none text-xs leading-relaxed whitespace-pre-wrap font-sans">
+                  {formData.content || 'No content written yet.'}
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setActiveTab('edit')}>
+                  Back to Editor
+                </Button>
+                <Button
+                  onClick={isCreateOpen ? handleCreatePost : handleUpdatePost}
+                  disabled={submitting}
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold"
+                >
+                  {submitting && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
+                  {isCreateOpen ? 'Publish Post' : 'Save Changes'}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Blog Post</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete "{selectedPost?.title}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeletePost}
+              disabled={submitting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {submitting && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
+              Delete Post
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -4410,20 +7360,44 @@ function AuditLogsManagement() {
 export default function AdminDashboard() {
   const location = useLocation();
   const currentPath = location.pathname.split('/admin')[1] || '';
+  const [badgeCounts, setBadgeCounts] = useState({
+    moderation: 0,
+    support_tickets: 0,
+    reports: 0,
+    kyc: 0,
+    listings: 0,
+    users: 0
+  });
+
+  const fetchBadgeCounts = useCallback(async () => {
+    try {
+      const response = await api.get('/admin/badge-counts');
+      setBadgeCounts(response.data);
+    } catch (error) {
+      console.error('Failed to fetch badge counts:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBadgeCounts();
+    const interval = setInterval(fetchBadgeCounts, 30000); // Polling every 30s
+    return () => clearInterval(interval);
+  }, [fetchBadgeCounts, location.pathname]);
 
   const navItems = [
     { path: '', label: 'Overview', icon: LayoutDashboard },
-    { path: '/moderation', label: 'Moderation & Filter', icon: ShieldAlert },
+    { path: '/moderation', label: 'Moderation & Filter', icon: ShieldAlert, badgeKey: 'moderation' },
     { path: '/audit-logs', label: 'Audit History', icon: RotateCcw },
-    { path: '/users', label: 'Users', icon: Users },
-    { path: '/listings', label: 'Listings', icon: Package },
-    { path: '/kyc', label: 'KYC & Verification', icon: ShieldCheck },
-    { path: '/support-tickets', label: 'Support Tickets', icon: HelpCircle },
-    { path: '/reports', label: 'Ad Reports', icon: Flag },
+    { path: '/users', label: 'Users', icon: Users, badgeKey: 'users' },
+    { path: '/listings', label: 'Listings', icon: Package, badgeKey: 'listings' },
+    { path: '/kyc', label: 'KYC & Verification', icon: ShieldCheck, badgeKey: 'kyc' },
+    { path: '/support-tickets', label: 'Support Tickets', icon: HelpCircle, badgeKey: 'support_tickets' },
+    { path: '/reports', label: 'Ad Reports', icon: Flag, badgeKey: 'reports' },
     { path: '/all-chats', label: 'All Chats', icon: MessageCircle },
     { path: '/payments', label: 'Payments', icon: CreditCard },
     { path: '/categories', label: 'Categories', icon: FolderOpen },
     { path: '/pages', label: 'Pages & Policies', icon: FileText },
+    { path: '/blog', label: 'Blog & Articles', icon: BookOpen },
   ];
 
   return (
@@ -4437,7 +7411,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-foreground">Admin Control Center</h1>
-              <p className="text-xs text-muted-foreground">Manage moderation, audit history, users, verification, listings, support, and payments</p>
+              <p className="text-xs text-muted-foreground">Manage moderation, audit history, users, verification, listings, support, blog, and payments</p>
             </div>
           </div>
 
@@ -4456,19 +7430,33 @@ export default function AdminDashboard() {
             <div className="bg-card border border-border rounded-xl p-2 flex lg:flex-col gap-1 overflow-x-auto no-scrollbar lg:overflow-visible">
               {navItems.map((item) => {
                 const isActive = currentPath === item.path;
+                const count = item.badgeKey ? (badgeCounts[item.badgeKey] || 0) : 0;
                 return (
                   <Link
                     key={item.path}
                     to={`/admin${item.path}`}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg whitespace-nowrap transition-colors shrink-0 ${
+                    className={`flex items-center justify-between gap-3 px-4 py-3 rounded-lg whitespace-nowrap transition-colors shrink-0 ${
                       isActive
                         ? 'bg-violet-600 text-white font-bold'
                         : 'hover:bg-muted text-muted-foreground hover:text-foreground'
                     }`}
                     data-testid={`nav-${item.path.replace('/', '') || 'overview'}`}
                   >
-                    <item.icon className="w-5 h-5 shrink-0" />
-                    <span className="font-medium text-sm">{item.label}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <item.icon className="w-5 h-5 shrink-0" />
+                      <span className="font-medium text-sm truncate">{item.label}</span>
+                    </div>
+                    {count > 0 && (
+                      <span
+                        className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold shrink-0 transition-colors ${
+                          isActive
+                            ? 'bg-white text-violet-700 shadow-sm'
+                            : 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                        }`}
+                      >
+                        {count > 99 ? '99+' : count}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -4481,7 +7469,7 @@ export default function AdminDashboard() {
               <Route index element={<Overview />} />
               <Route path="moderation" element={<ModerationManagement />} />
               <Route path="audit-logs" element={<AuditLogsManagement />} />
-              <Route path="users" element={<UsersManagement />} />
+              <Route path="users" element={<UsersManagement onUserUpdated={fetchBadgeCounts} />} />
               <Route path="listings" element={<ListingsManagement />} />
               <Route path="kyc" element={<KYCManagement />} />
               <Route path="support-tickets" element={<SupportTicketsManagement />} />
@@ -4490,6 +7478,7 @@ export default function AdminDashboard() {
               <Route path="payments" element={<PaymentsManagement />} />
               <Route path="categories" element={<CategoriesManagement />} />
               <Route path="pages" element={<PagesManagement />} />
+              <Route path="blog" element={<BlogManagement />} />
             </Routes>
           </div>
         </div>
@@ -4497,4 +7486,5 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
 

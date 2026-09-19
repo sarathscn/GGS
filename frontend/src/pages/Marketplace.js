@@ -51,6 +51,21 @@ export default function Marketplace() {
   }, []);
 
   useEffect(() => {
+    // Keep local filter UI state in sync with URL searchParams
+    setQuery(searchParams.get('q') || '');
+    setCategory(searchParams.get('category') || 'all');
+    setSubcategory(searchParams.get('subcategory') || 'all');
+    setCondition(searchParams.get('condition') || 'all');
+    setItemType(searchParams.get('type') || 'all');
+    setDistrict(searchParams.get('district') || 'all');
+    setTaluk(searchParams.get('taluk') || 'all');
+    setArea(searchParams.get('area') || 'all');
+    setPriceType(searchParams.get('price_type') || 'all');
+    setMinPrice(searchParams.get('min_price') || '');
+    setMaxPrice(searchParams.get('max_price') || '');
+    setVerifiedOnly(searchParams.get('verified') === 'true');
+    setSortBy(searchParams.get('sort') || 'latest');
+
     fetchListings();
   }, [searchParams]);
 
@@ -74,6 +89,9 @@ export default function Marketplace() {
       if (searchParams.get('q')) params.append('search', searchParams.get('q'));
       if (searchParams.get('category') && searchParams.get('category') !== 'all') {
         params.append('category', searchParams.get('category'));
+      }
+      if (searchParams.get('subcategory') && searchParams.get('subcategory') !== 'all') {
+        params.append('subcategory', searchParams.get('subcategory'));
       }
       if (searchParams.get('condition') && searchParams.get('condition') !== 'all') {
         params.append('condition', searchParams.get('condition'));
@@ -109,33 +127,40 @@ export default function Marketplace() {
   };
 
   const applyFilters = (overrides = {}) => {
+    const safeOverrides = (overrides && typeof overrides === 'object' && !('nativeEvent' in overrides) && !('preventDefault' in overrides)) ? overrides : {};
     const params = new URLSearchParams();
     
-    const currentQuery = overrides.query !== undefined ? overrides.query : query;
-    const currentCategory = overrides.category !== undefined ? overrides.category : category;
-    const currentCondition = overrides.condition !== undefined ? overrides.condition : condition;
-    const currentItemType = overrides.itemType !== undefined ? overrides.itemType : itemType;
-    const currentDistrict = overrides.district !== undefined ? overrides.district : district;
-    const currentTaluk = overrides.taluk !== undefined ? overrides.taluk : taluk;
-    const currentArea = overrides.area !== undefined ? overrides.area : area;
-    const currentPriceType = overrides.priceType !== undefined ? overrides.priceType : priceType;
-    const currentMinPrice = overrides.minPrice !== undefined ? overrides.minPrice : minPrice;
-    const currentMaxPrice = overrides.maxPrice !== undefined ? overrides.maxPrice : maxPrice;
-    const currentVerified = overrides.verifiedOnly !== undefined ? overrides.verifiedOnly : verifiedOnly;
-    const currentSortBy = overrides.sortBy !== undefined ? overrides.sortBy : sortBy;
+    const currentQuery = safeOverrides.query !== undefined ? safeOverrides.query : query;
+    const currentCategory = safeOverrides.category !== undefined ? safeOverrides.category : category;
+    const currentSubcategory = safeOverrides.subcategory !== undefined ? safeOverrides.subcategory : subcategory;
+    const currentCondition = safeOverrides.condition !== undefined ? safeOverrides.condition : condition;
+    const currentItemType = safeOverrides.itemType !== undefined ? safeOverrides.itemType : itemType;
+    const currentDistrict = safeOverrides.district !== undefined ? safeOverrides.district : district;
+    const currentTaluk = safeOverrides.taluk !== undefined ? safeOverrides.taluk : taluk;
+    const currentArea = safeOverrides.area !== undefined ? safeOverrides.area : area;
+    const currentPriceType = safeOverrides.priceType !== undefined ? safeOverrides.priceType : priceType;
+    const currentMinPrice = safeOverrides.minPrice !== undefined ? safeOverrides.minPrice : minPrice;
+    const currentMaxPrice = safeOverrides.maxPrice !== undefined ? safeOverrides.maxPrice : maxPrice;
+    const currentVerified = safeOverrides.verifiedOnly !== undefined ? safeOverrides.verifiedOnly : verifiedOnly;
+    const currentSortBy = safeOverrides.sortBy !== undefined ? safeOverrides.sortBy : sortBy;
 
-    if (currentQuery) params.set('q', currentQuery);
-    if (currentCategory !== 'all') params.set('category', currentCategory);
-    if (currentCondition !== 'all') params.set('condition', currentCondition);
-    if (currentItemType !== 'all') params.set('type', currentItemType);
-    if (currentDistrict !== 'all') params.set('district', currentDistrict);
-    if (currentTaluk !== 'all') params.set('taluk', currentTaluk);
-    if (currentArea !== 'all') params.set('area', currentArea);
-    if (currentPriceType !== 'all') params.set('price_type', currentPriceType);
+    if (currentQuery && currentQuery.trim()) params.set('q', currentQuery.trim());
+    if (currentCategory && currentCategory !== 'all') params.set('category', currentCategory);
+    if (currentSubcategory && currentSubcategory !== 'all') params.set('subcategory', currentSubcategory);
+    if (currentCondition && currentCondition !== 'all') params.set('condition', currentCondition);
+    if (currentItemType && currentItemType !== 'all') params.set('type', currentItemType);
+    if (currentDistrict && currentDistrict !== 'all') params.set('district', currentDistrict);
+    if (currentDistrict && currentDistrict !== 'all' && currentTaluk && currentTaluk !== 'all') {
+      params.set('taluk', currentTaluk);
+    }
+    if (currentDistrict && currentDistrict !== 'all' && currentTaluk && currentTaluk !== 'all' && currentArea && currentArea !== 'all') {
+      params.set('area', currentArea);
+    }
+    if (currentPriceType && currentPriceType !== 'all') params.set('price_type', currentPriceType);
     if (currentMinPrice) params.set('min_price', currentMinPrice);
     if (currentMaxPrice) params.set('max_price', currentMaxPrice);
     if (currentVerified) params.set('verified', 'true');
-    if (currentSortBy !== 'latest') params.set('sort', currentSortBy);
+    if (currentSortBy && currentSortBy !== 'latest') params.set('sort', currentSortBy);
     
     setSearchParams(params);
     setShowFilters(false);
@@ -163,7 +188,7 @@ export default function Marketplace() {
 
   const selectedCategory = categories.find(c => c.slug === category);
 
-  const FilterContent = () => (
+  const renderFilterContent = () => (
     <div className="space-y-6">
       {/* Category */}
       <div className="space-y-2">
@@ -242,7 +267,14 @@ export default function Marketplace() {
       <div className="space-y-4">
         <div className="space-y-2">
           <Label>District</Label>
-          <Select value={district} onValueChange={(val) => { setDistrict(val); setTaluk('all'); setArea('all'); }}>
+          <Select
+            value={district}
+            onValueChange={(val) => {
+              setDistrict(val);
+              setTaluk('all');
+              setArea('all');
+            }}
+          >
             <SelectTrigger data-testid="filter-district">
               <SelectValue placeholder="All Kerala" />
             </SelectTrigger>
@@ -258,7 +290,14 @@ export default function Marketplace() {
         {district !== 'all' && (
           <div className="space-y-2">
             <Label>Sub-District (Taluk)</Label>
-            <Select key={`filter-taluk-${district}`} value={taluk} onValueChange={(val) => { setTaluk(val); setArea('all'); }}>
+            <Select
+              key={`filter-taluk-${district}`}
+              value={taluk}
+              onValueChange={(val) => {
+                setTaluk(val);
+                setArea('all');
+              }}
+            >
               <SelectTrigger data-testid="filter-taluk">
                 <SelectValue placeholder="All Taluks" />
               </SelectTrigger>
@@ -272,10 +311,14 @@ export default function Marketplace() {
           </div>
         )}
 
-        {taluk !== 'all' && (
+        {district !== 'all' && taluk !== 'all' && (
           <div className="space-y-2">
             <Label>Village / Area</Label>
-            <Select key={`filter-area-${taluk}`} value={area} onValueChange={setArea}>
+            <Select
+              key={`filter-area-${district}-${taluk}`}
+              value={area}
+              onValueChange={setArea}
+            >
               <SelectTrigger data-testid="filter-area">
                 <SelectValue placeholder="All Areas" />
               </SelectTrigger>
@@ -340,7 +383,7 @@ export default function Marketplace() {
         <Button variant="outline" className="flex-1" onClick={clearFilters}>
           Clear
         </Button>
-        <Button className="flex-1 bg-violet-600 hover:bg-violet-700" onClick={applyFilters}>
+        <Button className="flex-1 bg-violet-600 hover:bg-violet-700" onClick={() => applyFilters()}>
           Apply Filters
         </Button>
       </div>
@@ -348,7 +391,7 @@ export default function Marketplace() {
   );
 
   return (
-    <div className="min-h-screen py-8">
+    <div className="w-full py-6 sm:py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -387,7 +430,7 @@ export default function Marketplace() {
                   <SheetTitle>Filters</SheetTitle>
                 </SheetHeader>
                 <div className="mt-6">
-                  <FilterContent />
+                  {renderFilterContent()}
                 </div>
               </SheetContent>
             </Sheet>
@@ -469,37 +512,37 @@ export default function Marketplace() {
           </div>
         )}
 
-        <div className="flex gap-8">
+        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
           {/* Desktop Filters Sidebar */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
-            <div className="bg-card border border-border rounded-xl p-4 sticky top-24">
+            <div className="bg-card border border-border rounded-xl p-4 sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto no-scrollbar">
               <h3 className="font-bold mb-4 flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4" />
                 Filters
               </h3>
-              <FilterContent />
+              {renderFilterContent()}
             </div>
           </aside>
 
           {/* Listings Grid */}
-          <div className="flex-1">
+          <div className="flex-1 w-full min-w-0">
             {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {[...Array(9)].map((_, i) => (
-                  <div key={i} className="bg-card rounded-xl border border-border animate-pulse">
-                    <div className="aspect-[4/3] bg-muted"></div>
-                    <div className="p-4 space-y-2">
-                      <div className="h-4 bg-muted rounded w-1/3"></div>
-                      <div className="h-5 bg-muted rounded w-2/3"></div>
-                      <div className="h-6 bg-muted rounded w-1/2"></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="bg-card rounded-xl border border-border animate-pulse overflow-hidden">
+                    <div className="aspect-[4/3] bg-muted/60"></div>
+                    <div className="p-3.5 space-y-2">
+                      <div className="h-3 bg-muted rounded w-1/3"></div>
+                      <div className="h-4 bg-muted rounded w-2/3"></div>
+                      <div className="h-5 bg-muted rounded w-1/2"></div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : listings.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
                 {listings.map((listing, index) => (
-                  <div key={listing.id} className={`animate-fadeIn stagger-${index % 6 + 1}`}>
+                  <div key={listing.id} className={`animate-fadeIn stagger-${index % 6 + 1} h-full min-w-0`}>
                     <ProductCard listing={listing} />
                   </div>
                 ))}

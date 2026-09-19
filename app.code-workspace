@@ -4,5 +4,12 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"css.lint.unknownAtRules": "ignore",
+		"scss.lint.unknownAtRules": "ignore",
+		"less.lint.unknownAtRules": "ignore",
+		"files.associations": {
+			"*.css": "tailwindcss"
+		}
+	}
 }

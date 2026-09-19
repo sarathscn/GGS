@@ -13,6 +13,7 @@ const Category = require('../models/Category');
 const ModerationRecord = require('../models/ModerationRecord');
 const ModerationTerm = require('../models/ModerationTerm');
 const AuditLog = require('../models/AuditLog');
+const SupportTicket = require('../models/SupportTicket');
 const { OFFENSIVE_TERMS, ALL_TERMS } = require('../moderation/dictionary/offensiveTerms');
 const { enrichListing } = require('./listingController');
 const { logAuditEvent } = require('../utils/auditLogger');
@@ -25,14 +26,69 @@ const {
 // GET /api/admin/users
 const getUsers = async (req, res) => {
   try {
-    const users = await User.find({}, { password: 0 }).lean();
-    return res.status(200).json(
-      users.map((u) => {
-        delete u._id;
-        delete u.__v;
-        return u;
-      })
-    );
+    const { status, role, search, page, limit } = req.query;
+    const query = {};
+
+    if (role && role !== 'all') {
+      query.role = role;
+    }
+
+    if (status && status !== 'all') {
+      if (status === 'banned' || status === 'suspended') {
+        query.$or = [{ is_suspended: true }, { is_banned: true }];
+      } else if (status === 'active') {
+        query.is_suspended = { $ne: true };
+        query.is_banned = { $ne: true };
+      } else if (status === 'verified') {
+        query.is_seller_verified = true;
+      } else if (status === 'unverified') {
+        query.is_seller_verified = { $ne: true };
+      } else if (status === 'pending') {
+        query.verification_status = 'pending';
+      } else if (status === 'revoked') {
+        query.verification_status = 'revoked';
+      }
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      query.$or = [
+        { name: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } },
+        { phone: { $regex: q, $options: 'i' } },
+        { id: { $regex: q, $options: 'i' } },
+        { username: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const total = await User.countDocuments(query);
+    const pageSize = limit ? Math.min(100, Math.max(1, Number(limit))) : (page ? 20 : 1000);
+    const currentPage = page ? Math.max(1, Number(page)) : 1;
+    const skip = (currentPage - 1) * pageSize;
+
+    const users = await User.find(query, { password: 0 })
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean();
+
+    const formatted = users.map((u) => {
+      delete u._id;
+      delete u.__v;
+      return u;
+    });
+
+    if (page || limit) {
+      return res.status(200).json({
+        total,
+        page: currentPage,
+        limit: pageSize,
+        total_pages: Math.ceil(total / pageSize) || 1,
+        users: formatted
+      });
+    }
+
+    return res.status(200).json(formatted);
   } catch (error) {
     console.error('Admin get users error:', error);
     return res.status(500).json({ detail: error.message });
@@ -71,16 +127,205 @@ const updateUser = async (req, res) => {
 // GET /api/admin/listings
 const getListings = async (req, res) => {
   try {
-    const { status, user_id } = req.query;
-    const query = {};
-    if (status) query.status = status;
-    if (user_id) query.seller_id = user_id;
+    const { 
+      status, 
+      user_id, 
+      category_id, 
+      search, 
+      date_from, 
+      date_to, 
+      price_min, 
+      price_max,
+      page, 
+      limit 
+    } = req.query;
 
-    const rawListings = await Listing.find(query).sort({ created_at: -1 }).limit(1000).lean();
-    const listings = await Promise.all(rawListings.map((l) => enrichListing(l)));
+    const query = {};
+
+    // Filter by listing lifecycle status
+    if (status && status !== 'all') {
+      if (status === 'deleted') {
+        query.$or = [{ is_deleted: true }, { status: 'deleted' }];
+      } else if (status === 'active') {
+        query.status = 'active';
+        query.is_deleted = { $ne: true };
+      } else if (status === 'sold') {
+        query.status = 'sold';
+        query.is_deleted = { $ne: true };
+      } else if (status === 'expired') {
+        query.status = 'expired';
+        query.is_deleted = { $ne: true };
+      } else if (status === 'archived') {
+        query.status = 'archived';
+        query.is_deleted = { $ne: true };
+      } else {
+        query.status = status;
+      }
+    }
+
+    if (user_id) query.seller_id = user_id;
+    if (category_id && category_id !== 'all') query.category_id = category_id;
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      query.$or = [
+        { title: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+        { id: { $regex: q, $options: 'i' } },
+        { location: { $regex: q, $options: 'i' } },
+        { brand: { $regex: q, $options: 'i' } },
+        { model: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    if (price_min !== undefined && price_min !== '') {
+      query.price = { ...(query.price || {}), $gte: Number(price_min) };
+    }
+    if (price_max !== undefined && price_max !== '') {
+      query.price = { ...(query.price || {}), $lte: Number(price_max) };
+    }
+
+    if (date_from || date_to) {
+      query.created_at = {};
+      if (date_from) query.created_at.$gte = new Date(date_from).toISOString();
+      if (date_to) query.created_at.$lte = new Date(date_to).toISOString();
+    }
+
+    // Auto-expire listings that have passed their expiration date
+    const nowIso = new Date().toISOString();
+    await Listing.updateMany(
+      { status: 'active', expires_at: { $lte: nowIso, $ne: null } },
+      { $set: { status: 'expired', featured: false, updated_at: nowIso } }
+    ).catch(() => {});
+
+    const total = await Listing.countDocuments(query);
+    const pageSize = limit ? Math.min(100, Math.max(1, Number(limit))) : (page ? 20 : 1000);
+    const currentPage = page ? Math.max(1, Number(page)) : 1;
+    const skip = (currentPage - 1) * pageSize;
+
+    let sortQuery = { created_at: -1 };
+    const sortParam = req.query.sort || req.query.sort_by;
+    if (sortParam === 'views_desc' || sortParam === 'views' || sortParam === 'most_viewed') {
+      sortQuery = { views: -1, created_at: -1 };
+    } else if (sortParam === 'views_asc') {
+      sortQuery = { views: 1, created_at: -1 };
+    } else if (sortParam === 'price_asc') {
+      sortQuery = { price: 1, created_at: -1 };
+    } else if (sortParam === 'price_desc') {
+      sortQuery = { price: -1, created_at: -1 };
+    } else if (sortParam === 'oldest') {
+      sortQuery = { created_at: 1 };
+    }
+
+    const rawListings = await Listing.find(query)
+      .sort(sortQuery)
+      .skip(skip)
+      .limit(pageSize)
+      .lean();
+
+    const categoryIds = [...new Set(rawListings.map((l) => l.category_id))];
+    const sellerIds = [...new Set(rawListings.map((l) => l.seller_id))];
+
+    const [categories, sellers] = await Promise.all([
+      Category.find({ id: { $in: categoryIds } }).lean(),
+      User.find({ id: { $in: sellerIds } }, { password: 0 }).lean()
+    ]);
+
+    const categoryMap = new Map(categories.map((c) => [c.id, c]));
+    const userMap = new Map(sellers.map((u) => [u.id, u]));
+
+    const listings = await Promise.all(
+      rawListings.map((l) => enrichListing(l, categoryMap, userMap))
+    );
+
+    if (page || limit) {
+      return res.status(200).json({
+        total,
+        page: currentPage,
+        limit: pageSize,
+        total_pages: Math.ceil(total / pageSize) || 1,
+        listings,
+        items: listings
+      });
+    }
+
     return res.status(200).json(listings);
   } catch (error) {
     console.error('Admin get listings error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/listings/stats
+const getListingStats = async (req, res) => {
+  try {
+    const [
+      total,
+      active,
+      pending_payment,
+      expired,
+      sold,
+      deleted,
+      archived,
+      viewAgg
+    ] = await Promise.all([
+      Listing.countDocuments({}),
+      Listing.countDocuments({ status: 'active', is_deleted: { $ne: true } }),
+      Listing.countDocuments({ status: 'pending_payment', is_deleted: { $ne: true } }),
+      Listing.countDocuments({ status: 'expired', is_deleted: { $ne: true } }),
+      Listing.countDocuments({ status: 'sold', is_deleted: { $ne: true } }),
+      Listing.countDocuments({ $or: [{ is_deleted: true }, { status: 'deleted' }] }),
+      Listing.countDocuments({ status: 'archived', is_deleted: { $ne: true } }),
+      Listing.aggregate([
+        {
+          $group: {
+            _id: null,
+            total_views: { $sum: { $ifNull: ['$views_count', 0] } },
+            viewed_listings_count: {
+              $sum: {
+                $cond: [{ $gt: [{ $ifNull: ['$views_count', 0] }, 0] }, 1, 0]
+              }
+            }
+          }
+        }
+      ])
+    ]);
+
+    const totalViews = (viewAgg && viewAgg[0] && viewAgg[0].total_views) || 0;
+    const viewedListingsCount = (viewAgg && viewAgg[0] && viewAgg[0].viewed_listings_count) || 0;
+
+    return res.status(200).json({
+      total,
+      active,
+      pending_payment,
+      expired,
+      sold,
+      deleted,
+      archived,
+      total_views: totalViews,
+      viewed_listings: viewedListingsCount
+    });
+  } catch (error) {
+    console.error('Admin get listing stats error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/listings/:listing_id/view
+const viewListingAdmin = async (req, res) => {
+  try {
+    const { listing_id } = req.params;
+    const listing = await Listing.findOneAndUpdate(
+      { id: listing_id },
+      { 
+        $inc: { views_count: 1 }, 
+        $set: { admin_viewed: true, admin_viewed_at: new Date().toISOString() } 
+      },
+      { returnDocument: 'after' }
+    );
+    if (!listing) return res.status(404).json({ detail: 'Listing not found' });
+    return res.status(200).json({ success: true, views_count: listing.views_count });
+  } catch (error) {
     return res.status(500).json({ detail: error.message });
   }
 };
@@ -123,12 +368,31 @@ const updateListing = async (req, res) => {
 // GET /api/admin/payments
 const getPayments = async (req, res) => {
   try {
-    const { user_id, status, search } = req.query;
+    const { user_id, status, search, page, limit } = req.query;
     const query = {};
     if (user_id) query.user_id = user_id;
     if (status && status !== 'all') query.status = status;
 
-    const payments = await Payment.find(query).sort({ created_at: -1 }).limit(1000).lean();
+    if (search && search.trim()) {
+      const q = search.trim();
+      query.$or = [
+        { id: { $regex: q, $options: 'i' } },
+        { transaction_id: { $regex: q, $options: 'i' } },
+        { invoice_number: { $regex: q, $options: 'i' } },
+        { listing_id: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const total = await Payment.countDocuments(query);
+    const pageSize = limit ? Math.min(100, Math.max(1, Number(limit))) : (page ? 20 : 1000);
+    const currentPage = page ? Math.max(1, Number(page)) : 1;
+    const skip = (currentPage - 1) * pageSize;
+
+    const payments = await Payment.find(query)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean();
 
     const userIds = [...new Set(payments.map((p) => p.user_id))];
     const listingIds = [...new Set(payments.map((p) => p.listing_id))];
@@ -150,20 +414,22 @@ const getPayments = async (req, res) => {
       p.user_email = user ? user.email : null;
       p.user_phone = user ? user.phone : null;
       p.ad_title = listing ? listing.title : 'Listing Service Fee';
+      p.listing_status = listing ? listing.status : 'unknown';
+      p.listing_published_at = listing ? (listing.published_at || listing.created_at) : null;
+      p.listing_expires_at = listing ? listing.expires_at : null;
+      p.listing_is_deleted = listing ? Boolean(listing.is_deleted) : false;
       p.invoice_number = p.invoice_number || `GGS-INV-${p.id.replace(/-/g, '').substring(0, 8).toUpperCase()}`;
       return p;
     });
 
-    if (search && search.trim()) {
-      const q = search.trim().toLowerCase();
-      enriched = enriched.filter((p) =>
-        (p.id && p.id.toLowerCase().includes(q)) ||
-        (p.transaction_id && p.transaction_id.toLowerCase().includes(q)) ||
-        (p.invoice_number && p.invoice_number.toLowerCase().includes(q)) ||
-        (p.user_name && p.user_name.toLowerCase().includes(q)) ||
-        (p.user_email && p.user_email.toLowerCase().includes(q)) ||
-        (p.ad_title && p.ad_title.toLowerCase().includes(q))
-      );
+    if (page || limit) {
+      return res.status(200).json({
+        total,
+        page: currentPage,
+        limit: pageSize,
+        total_pages: Math.ceil(total / pageSize) || 1,
+        payments: enriched
+      });
     }
 
     return res.status(200).json(enriched);
@@ -177,8 +443,9 @@ const getPayments = async (req, res) => {
 const getStats = async (req, res) => {
   try {
     const total_users = await User.countDocuments({});
-    const banned_users = await User.countDocuments({ is_suspended: true });
+    const banned_users = await User.countDocuments({ $or: [{ is_suspended: true }, { is_banned: true }] });
     const verified_users = await User.countDocuments({ is_seller_verified: true });
+    const pending_user_verifications = await User.countDocuments({ verification_status: 'pending' });
     const total_listings = await Listing.countDocuments({});
     const active_listings = await Listing.countDocuments({ status: 'active' });
     const pending_listings = await Listing.countDocuments({ status: 'pending_payment' });
@@ -186,6 +453,8 @@ const getStats = async (req, res) => {
     const pending_reports = await Report.countDocuments({ status: 'pending' });
     const pending_chat_reports = await ChatReport.countDocuments({ status: 'pending' });
     const pending_kyc = await KYCSubmission.countDocuments({ status: 'pending' });
+    const open_support_tickets = await SupportTicket.countDocuments({ status: { $in: ['open', 'pending'] } });
+    const pending_moderation = await ModerationRecord.countDocuments({ status: 'pending' });
 
     const payments = await Payment.find({ status: 'completed' }).lean();
     const total_revenue = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
@@ -194,6 +463,7 @@ const getStats = async (req, res) => {
       total_users,
       banned_users,
       verified_users,
+      pending_user_verifications,
       total_listings,
       active_listings,
       pending_listings,
@@ -201,10 +471,49 @@ const getStats = async (req, res) => {
       total_revenue,
       pending_reports,
       pending_chat_reports,
-      pending_kyc
+      pending_kyc,
+      open_support_tickets,
+      pending_moderation
     });
   } catch (error) {
     console.error('Admin get stats error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/badge-counts
+const getBadgeCounts = async (req, res) => {
+  try {
+    const [
+      pending_moderation,
+      pending_support_tickets,
+      pending_ad_reports,
+      pending_chat_reports,
+      pending_kyc,
+      pending_listings,
+      pending_user_verifications
+    ] = await Promise.all([
+      ModerationRecord.countDocuments({ status: 'pending' }),
+      SupportTicket.countDocuments({ status: { $in: ['open', 'pending'] } }),
+      Report.countDocuments({ status: 'pending' }),
+      ChatReport.countDocuments({ status: 'pending' }),
+      KYCSubmission.countDocuments({ status: 'pending' }),
+      Listing.countDocuments({ status: 'pending_payment' }),
+      User.countDocuments({ verification_status: 'pending' })
+    ]);
+
+    return res.status(200).json({
+      moderation: pending_moderation,
+      support_tickets: pending_support_tickets,
+      reports: pending_ad_reports + pending_chat_reports,
+      ad_reports: pending_ad_reports,
+      chat_reports: pending_chat_reports,
+      kyc: pending_kyc,
+      listings: pending_listings,
+      users: pending_user_verifications
+    });
+  } catch (error) {
+    console.error('Admin get badge counts error:', error);
     return res.status(500).json({ detail: error.message });
   }
 };
@@ -213,6 +522,7 @@ const getStats = async (req, res) => {
 const banUser = async (req, res) => {
   try {
     const { user_id } = req.params;
+    const { reason, ban_reason, user_visible_reason, admin_notes, notes } = req.body || {};
     const admin = req.user;
 
     const targetUser = await User.findOne({ id: user_id });
@@ -223,16 +533,43 @@ const banUser = async (req, res) => {
       return res.status(400).json({ detail: 'Cannot ban admin users' });
     }
 
+    const publicReason = user_visible_reason || ban_reason || reason || 'Account suspended by administrator for policy violation.';
+    const privateNotes = admin_notes || notes || null;
+    const nowIso = new Date().toISOString();
+
     await User.updateOne(
       { id: user_id },
       {
         $set: {
           is_suspended: true,
-          banned_at: new Date().toISOString(),
-          banned_by: admin.id
+          is_banned: true,
+          banned_at: nowIso,
+          banned_by: admin.id,
+          ban_reason: publicReason,
+          admin_notes: privateNotes
+        },
+        $push: {
+          moderation_history: {
+            action: 'ban',
+            date: nowIso,
+            admin_id: admin.id,
+            user_visible_reason: publicReason,
+            admin_notes: privateNotes
+          }
         }
       }
     );
+
+    await logAuditEvent({
+      admin_id: admin.id,
+      entity_type: 'user',
+      entity_id: user_id,
+      action: 'USER_BANNED',
+      previous_state: { is_suspended: Boolean(targetUser.is_suspended || targetUser.is_banned) },
+      new_state: { is_suspended: true, is_banned: true, banned_at: nowIso, banned_by: admin.id, ban_reason: publicReason },
+      reason: publicReason,
+      req
+    });
 
     return res.status(200).json({ message: 'User banned successfully' });
   } catch (error) {
@@ -245,14 +582,45 @@ const banUser = async (req, res) => {
 const unbanUser = async (req, res) => {
   try {
     const { user_id } = req.params;
+    const { reason, admin_notes, notes } = req.body || {};
+    const admin = req.user;
+
+    const targetUser = await User.findOne({ id: user_id });
+    if (!targetUser) {
+      return res.status(404).json({ detail: 'User not found' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const unbanReason = reason || 'User account suspension lifted by administrator';
+    const privateNotes = admin_notes || notes || null;
 
     await User.updateOne(
       { id: user_id },
       {
-        $set: { is_suspended: false },
-        $unset: { banned_at: '', banned_by: '' }
+        $set: { is_suspended: false, is_banned: false },
+        $unset: { banned_at: '', banned_by: '', ban_reason: '', admin_notes: '' },
+        $push: {
+          moderation_history: {
+            action: 'unban',
+            date: nowIso,
+            admin_id: admin.id,
+            reason: unbanReason,
+            admin_notes: privateNotes
+          }
+        }
       }
     );
+
+    await logAuditEvent({
+      admin_id: admin.id,
+      entity_type: 'user',
+      entity_id: user_id,
+      action: 'USER_UNBANNED',
+      previous_state: { is_suspended: Boolean(targetUser.is_suspended || targetUser.is_banned), ban_reason: targetUser.ban_reason },
+      new_state: { is_suspended: false, is_banned: false },
+      reason: unbanReason,
+      req
+    });
 
     return res.status(200).json({ message: 'User unbanned successfully' });
   } catch (error) {
@@ -350,18 +718,50 @@ const changeUserRole = async (req, res) => {
 // POST /api/admin/users/bulk
 const bulkUserAction = async (req, res) => {
   try {
-    const { user_ids, action, role } = req.body;
+    const { user_ids, action, role, reason } = req.body;
+    const admin = req.user;
     const results = { success: 0, failed: 0, errors: [] };
 
     for (const userId of user_ids) {
       try {
         if (action === 'ban') {
+          const banNote = reason || 'Bulk account suspension by administrator';
           await User.updateOne(
             { id: userId, role: { $ne: 'admin' } },
-            { $set: { is_suspended: true, banned_at: new Date().toISOString() } }
+            { 
+              $set: { 
+                is_suspended: true, 
+                is_banned: true, 
+                banned_at: new Date().toISOString(),
+                banned_by: admin.id,
+                ban_reason: banNote
+              } 
+            }
           );
+          await logAuditEvent({
+            admin_id: admin.id,
+            entity_type: 'user',
+            entity_id: userId,
+            action: 'USER_BANNED',
+            reason: banNote,
+            req
+          });
         } else if (action === 'unban') {
-          await User.updateOne({ id: userId }, { $set: { is_suspended: false } });
+          await User.updateOne(
+            { id: userId },
+            { 
+              $set: { is_suspended: false, is_banned: false },
+              $unset: { banned_at: '', banned_by: '', ban_reason: '' }
+            }
+          );
+          await logAuditEvent({
+            admin_id: admin.id,
+            entity_type: 'user',
+            entity_id: userId,
+            action: 'USER_UNBANNED',
+            reason: 'Bulk suspension lifted by administrator',
+            req
+          });
         } else if (action === 'delete') {
           const target = await User.findOne({ id: userId });
           if (target && target.role !== 'admin') {
@@ -465,11 +865,40 @@ const bulkReportAction = async (req, res) => {
 // GET /api/admin/kyc
 const getKYCSubmissions = async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, search, page, limit } = req.query;
     const query = {};
-    if (status) query.status = status;
+    if (status && status !== 'all') query.status = status;
 
-    const submissions = await KYCSubmission.find(query).sort({ created_at: -1 }).limit(500).lean();
+    if (search && search.trim()) {
+      const q = search.trim();
+      const matchingUsers = await User.find({
+        $or: [
+          { name: { $regex: q, $options: 'i' } },
+          { email: { $regex: q, $options: 'i' } },
+          { username: { $regex: q, $options: 'i' } },
+          { phone: { $regex: q, $options: 'i' } }
+        ]
+      }, { id: 1 }).lean();
+      const userIds = matchingUsers.map(u => u.id);
+      query.$or = [
+        { user_id: { $in: userIds } },
+        { id: { $regex: q, $options: 'i' } },
+        { document_number: { $regex: q, $options: 'i' } },
+        { document_type: { $regex: q, $options: 'i' } },
+        { rejection_reason: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const total = await KYCSubmission.countDocuments(query);
+    const pageSize = limit ? Math.min(100, Math.max(1, Number(limit))) : (page ? 20 : 500);
+    const currentPage = page ? Math.max(1, Number(page)) : 1;
+    const skip = (currentPage - 1) * pageSize;
+
+    const submissions = await KYCSubmission.find(query)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean();
 
     const userIds = [...new Set(submissions.map((s) => s.user_id))];
     const users = await User.find({ id: { $in: userIds } }, { password: 0 }).lean();
@@ -483,13 +912,43 @@ const getKYCSubmissions = async (req, res) => {
         sub.user_name = user.name;
         sub.user_email = user.email || null;
         sub.user_phone = user.phone || null;
+        sub.user_username = user.username || null;
+        sub.user_avatar = user.avatar || null;
       }
       return sub;
     });
 
+    if (page || limit) {
+      return res.status(200).json({
+        total,
+        page: currentPage,
+        limit: pageSize,
+        total_pages: Math.ceil(total / pageSize) || 1,
+        submissions: enriched,
+        items: enriched
+      });
+    }
+
     return res.status(200).json(enriched);
   } catch (error) {
     console.error('Admin get KYC error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/kyc/stats
+const getKYCStats = async (req, res) => {
+  try {
+    const [total, pending, approved, rejected, revoked] = await Promise.all([
+      KYCSubmission.countDocuments({}),
+      KYCSubmission.countDocuments({ status: 'pending' }),
+      KYCSubmission.countDocuments({ status: 'approved' }),
+      KYCSubmission.countDocuments({ status: 'rejected' }),
+      KYCSubmission.countDocuments({ status: 'revoked' })
+    ]);
+    return res.status(200).json({ total, pending, approved, rejected, revoked });
+  } catch (error) {
+    console.error('Admin get KYC stats error:', error);
     return res.status(500).json({ detail: error.message });
   }
 };
@@ -505,9 +964,13 @@ const approveKYC = async (req, res) => {
       return res.status(404).json({ detail: 'KYC submission not found' });
     }
 
+    const nowIso = new Date().toISOString();
     kyc.status = 'approved';
+    kyc.decision = 'VERIFIED';
+    kyc.rejection_reason = 'Your identity documents have been verified. You are now a Verified Seller.';
     kyc.reviewed_by = admin.id;
-    kyc.reviewed_at = new Date().toISOString();
+    kyc.reviewed_at = nowIso;
+    kyc.updated_at = nowIso;
     await kyc.save();
 
     await User.updateOne(
@@ -516,10 +979,28 @@ const approveKYC = async (req, res) => {
         $set: {
           is_seller_verified: true,
           verification_status: 'approved',
-          verified_at: new Date().toISOString()
+          verified_at: nowIso,
+          verified_by: admin.id
+        },
+        $push: {
+          moderation_history: {
+            action: 'verify',
+            date: nowIso,
+            admin_id: admin.id,
+            reason: 'Identity verified'
+          }
         }
       }
     );
+
+    await logAuditEvent({
+      admin_id: admin.id,
+      entity_type: 'user',
+      entity_id: kyc.user_id,
+      action: 'VERIFICATION_APPROVED',
+      reason: 'KYC documents verified and approved',
+      req
+    });
 
     return res.status(200).json({ success: true, message: 'KYC approved' });
   } catch (error) {
@@ -532,7 +1013,7 @@ const approveKYC = async (req, res) => {
 const rejectKYC = async (req, res) => {
   try {
     const { kyc_id } = req.params;
-    const { reason = 'Document not clear or invalid' } = req.body;
+    const { reason, user_visible_reason, admin_notes, notes } = req.body || {};
     const admin = req.user;
 
     const kyc = await KYCSubmission.findOne({ id: kyc_id });
@@ -540,10 +1021,17 @@ const rejectKYC = async (req, res) => {
       return res.status(404).json({ detail: 'KYC submission not found' });
     }
 
+    const publicReason = user_visible_reason || reason || 'Document not clear or invalid';
+    const privateNotes = admin_notes || notes || null;
+    const nowIso = new Date().toISOString();
+
     kyc.status = 'rejected';
-    kyc.rejection_reason = reason;
+    kyc.decision = 'REJECTED';
+    kyc.rejection_reason = publicReason;
+    if (privateNotes) kyc.admin_notes = privateNotes;
     kyc.reviewed_by = admin.id;
-    kyc.reviewed_at = new Date().toISOString();
+    kyc.reviewed_at = nowIso;
+    kyc.updated_at = nowIso;
     await kyc.save();
 
     await User.updateOne(
@@ -552,9 +1040,27 @@ const rejectKYC = async (req, res) => {
         $set: { 
           is_seller_verified: false,
           verification_status: 'rejected' 
-        } 
+        },
+        $push: {
+          moderation_history: {
+            action: 'reject_verification',
+            date: nowIso,
+            admin_id: admin.id,
+            user_visible_reason: publicReason,
+            admin_notes: privateNotes
+          }
+        }
       }
     );
+
+    await logAuditEvent({
+      admin_id: admin.id,
+      entity_type: 'user',
+      entity_id: kyc.user_id,
+      action: 'VERIFICATION_REJECTED',
+      reason: publicReason,
+      req
+    });
 
     return res.status(200).json({ success: true, message: 'KYC rejected' });
   } catch (error) {
@@ -567,7 +1073,7 @@ const rejectKYC = async (req, res) => {
 const revokeKYC = async (req, res) => {
   try {
     const { kyc_id } = req.params;
-    const { reason = 'Seller verification revoked by administrator', notes } = req.body;
+    const { reason, user_visible_reason, notes, admin_notes } = req.body || {};
     const admin = req.user;
 
     const kyc = await KYCSubmission.findOne({ id: kyc_id });
@@ -575,10 +1081,17 @@ const revokeKYC = async (req, res) => {
       return res.status(404).json({ detail: 'KYC submission not found' });
     }
 
+    const publicReason = user_visible_reason || reason || 'Seller verification revoked by administrator';
+    const privateNotes = admin_notes || notes || null;
+    const nowIso = new Date().toISOString();
+
     kyc.status = 'revoked';
-    kyc.rejection_reason = reason;
+    kyc.decision = 'REVOKED';
+    kyc.rejection_reason = publicReason;
+    if (privateNotes) kyc.admin_notes = privateNotes;
     kyc.reviewed_by = admin.id;
-    kyc.reviewed_at = new Date().toISOString();
+    kyc.reviewed_at = nowIso;
+    kyc.updated_at = nowIso;
     await kyc.save();
 
     await User.updateOne(
@@ -587,15 +1100,104 @@ const revokeKYC = async (req, res) => {
         $set: {
           is_seller_verified: false,
           verification_status: 'revoked',
-          verification_revoked_at: new Date().toISOString(),
-          verification_revoked_by: admin.id
+          verification_revoked_at: nowIso,
+          verification_revoked_by: admin.id,
+          verification_revocation_reason: publicReason,
+          verification_admin_notes: privateNotes
+        },
+        $push: {
+          moderation_history: {
+            action: 'revoke_verification',
+            date: nowIso,
+            admin_id: admin.id,
+            user_visible_reason: publicReason,
+            admin_notes: privateNotes
+          }
         }
       }
     );
 
+    await logAuditEvent({
+      admin_id: admin.id,
+      entity_type: 'user',
+      entity_id: kyc.user_id,
+      action: 'VERIFICATION_REVOKED',
+      reason: publicReason,
+      req
+    });
+
     return res.status(200).json({ success: true, message: 'Seller verification revoked' });
   } catch (error) {
     console.error('Revoke KYC error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// POST /api/admin/users/:user_id/revoke-verification
+const revokeUserVerification = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const { reason, user_visible_reason, notes, admin_notes } = req.body || {};
+    const admin = req.user;
+
+    const targetUser = await User.findOne({ id: user_id });
+    if (!targetUser) {
+      return res.status(404).json({ detail: 'User not found' });
+    }
+
+    const publicReason = user_visible_reason || reason || 'Seller verification revoked by administrator';
+    const privateNotes = admin_notes || notes || null;
+    const nowIso = new Date().toISOString();
+
+    await User.updateOne(
+      { id: user_id },
+      {
+        $set: {
+          is_seller_verified: false,
+          verification_status: 'revoked',
+          verification_revoked_at: nowIso,
+          verification_revoked_by: admin.id,
+          verification_revocation_reason: publicReason,
+          verification_admin_notes: privateNotes
+        },
+        $push: {
+          moderation_history: {
+            action: 'revoke_verification',
+            date: nowIso,
+            admin_id: admin.id,
+            user_visible_reason: publicReason,
+            admin_notes: privateNotes
+          }
+        }
+      }
+    );
+
+    await KYCSubmission.updateMany(
+      { user_id },
+      {
+        $set: {
+          status: 'revoked',
+          decision: 'REVOKED',
+          rejection_reason: publicReason,
+          reviewed_by: admin.id,
+          reviewed_at: nowIso,
+          updated_at: nowIso
+        }
+      }
+    );
+
+    await logAuditEvent({
+      admin_id: admin.id,
+      entity_type: 'user',
+      entity_id: user_id,
+      action: 'VERIFICATION_REVOKED',
+      reason: publicReason,
+      req
+    });
+
+    return res.status(200).json({ success: true, message: 'User verification revoked successfully' });
+  } catch (error) {
+    console.error('Revoke user verification error:', error);
     return res.status(500).json({ detail: error.message });
   }
 };
@@ -613,9 +1215,11 @@ const reverifyKYC = async (req, res) => {
     }
 
     kyc.status = 'reverification_requested';
+    kyc.decision = 'REVERIFICATION_REQUESTED';
     kyc.rejection_reason = reason;
     kyc.reviewed_by = admin.id;
     kyc.reviewed_at = new Date().toISOString();
+    kyc.updated_at = new Date().toISOString();
     await kyc.save();
 
     await User.updateOne(
@@ -864,9 +1468,12 @@ const removeReportedListing = async (req, res) => {
       {
         $set: {
           status: 'resolved',
+          decision: 'ACTION_TAKEN',
           action_taken: 'listing_removed',
+          admin_response: reason || 'We reviewed the listing and removed it because it violated our marketplace rules.',
           reviewed_by: adminUser.id,
-          reviewed_at: new Date().toISOString()
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         }
       }
     );
@@ -1533,7 +2140,7 @@ const archiveListing = async (req, res) => {
 // GET /api/admin/audit-logs
 const getAuditLogs = async (req, res) => {
   try {
-    const { entity_type, action, search, limit = 100, skip = 0 } = req.query;
+    const { entity_type, action, search, page, limit = 20, skip } = req.query;
     const query = {};
 
     if (entity_type && entity_type !== 'all') {
@@ -1553,25 +2160,50 @@ const getAuditLogs = async (req, res) => {
       ];
     }
 
+    const pageSize = Math.min(100, Math.max(1, Number(limit)));
+    const currentPage = page ? Math.max(1, Number(page)) : 1;
+    const computedSkip = skip !== undefined ? Number(skip) : (currentPage - 1) * pageSize;
+
     const [total, logs] = await Promise.all([
       AuditLog.countDocuments(query),
       AuditLog.find(query)
         .sort({ created_at: -1 })
-        .skip(Number(skip))
-        .limit(Number(limit))
+        .skip(computedSkip)
+        .limit(pageSize)
         .lean()
     ]);
 
     return res.status(200).json({
       total,
+      page: currentPage,
+      limit: pageSize,
+      total_pages: Math.ceil(total / pageSize) || 1,
       logs: logs.map((l) => {
         delete l._id;
         delete l.__v;
         return l;
-      })
+      }),
+      items: logs
     });
   } catch (error) {
     console.error('Admin get audit logs error:', error);
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
+// GET /api/admin/audit-logs/stats
+const getAuditStats = async (req, res) => {
+  try {
+    const [total, listingAudits, userAudits, modAudits, reportAudits] = await Promise.all([
+      AuditLog.countDocuments({}),
+      AuditLog.countDocuments({ entity_type: 'listing' }),
+      AuditLog.countDocuments({ entity_type: 'user' }),
+      AuditLog.countDocuments({ entity_type: 'moderation_term' }),
+      AuditLog.countDocuments({ entity_type: 'report' })
+    ]);
+    return res.status(200).json({ total, listingAudits, userAudits, modAudits, reportAudits });
+  } catch (error) {
+    console.error('Admin get audit stats error:', error);
     return res.status(500).json({ detail: error.message });
   }
 };
@@ -1586,6 +2218,7 @@ module.exports = {
   archiveListing,
   getPayments,
   getStats,
+  getBadgeCounts,
   banUser,
   unbanUser,
   deleteUser,
@@ -1595,9 +2228,11 @@ module.exports = {
   bulkListingAction,
   bulkReportAction,
   getKYCSubmissions,
+  getKYCStats,
   approveKYC,
   rejectKYC,
   revokeKYC,
+  revokeUserVerification,
   reverifyKYC,
   getFlaggedMessages,
   reviewFlaggedMessage,
@@ -1616,6 +2251,9 @@ module.exports = {
   toggleModerationTerm,
   importModerationTerms,
   exportModerationTerms,
-  getAuditLogs
+  getAuditLogs,
+  getAuditStats,
+  getListingStats,
+  viewListingAdmin
 };
 

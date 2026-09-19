@@ -12,6 +12,7 @@ import {
   calculateListingPayment 
 } from '../lib/pricingUtils';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
@@ -42,7 +43,10 @@ import {
   IndianRupee, 
   Plus, 
   Trash2, 
-  AlertTriangle 
+  AlertTriangle,
+  Sparkles,
+  CheckCircle2,
+  ShieldCheck
 } from 'lucide-react';
 
 const MAX_PRICE = 1000000;
@@ -51,6 +55,7 @@ export default function PostListing() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [categories, setCategories] = useState([]);
+  const [allowanceData, setAllowanceData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -100,6 +105,7 @@ export default function PostListing() {
 
   useEffect(() => {
     fetchCategories();
+    fetchAllowance();
   }, []);
 
   const fetchCategories = async () => {
@@ -108,6 +114,15 @@ export default function PostListing() {
       setCategories(response.data);
     } catch (error) {
       console.error('Failed to fetch categories:', error);
+    }
+  };
+
+  const fetchAllowance = async () => {
+    try {
+      const response = await api.get('/listings/free-posts-allowance');
+      setAllowanceData(response.data);
+    } catch (error) {
+      // Ignore if unauthenticated or error
     }
   };
 
@@ -206,9 +221,19 @@ export default function PostListing() {
       toast.error(`Maximum ${currentMaxSpecs} specifications allowed for ${selectedCategory?.name || 'this category'}`);
       return false;
     }
-    if (priceType !== 'free') {
+    if (priceType !== 'free' && priceType !== 'negotiable') {
       const numPrice = parseFloat(price);
       if (!price || isNaN(numPrice) || numPrice <= 0) {
+        toast.error('Please enter a valid price');
+        return false;
+      }
+      if (numPrice > MAX_PRICE) {
+        toast.error('Maximum price allowed is ₹10,00,000');
+        return false;
+      }
+    } else if (priceType === 'negotiable' && price) {
+      const numPrice = parseFloat(price);
+      if (isNaN(numPrice) || numPrice < 0) {
         toast.error('Please enter a valid price');
         return false;
       }
@@ -272,7 +297,7 @@ export default function PostListing() {
         description,
         category_id: categoryId,
         subcategory_id: subcategoryId || null,
-        price: priceType === 'free' ? 0 : parseFloat(price),
+        price: priceType === 'free' || !price ? 0 : parseFloat(price),
         price_type: priceType,
         condition,
         item_type: resolvedItemType,
@@ -294,8 +319,14 @@ export default function PostListing() {
 
       setCreatedListing(listingRes.data);
 
-      if (user?.role === 'admin' || listingRes.data.status === 'active') {
+      if (user?.role === 'admin') {
         toast.success('Admin listing published directly (No listing fee required).');
+        navigate(`/listing/${listingRes.data.id || listingRes.data.slug}`);
+        return;
+      }
+
+      if (listingRes.data.status === 'active' || listingRes.data.is_free_listing) {
+        toast.success('Listing published successfully using your verified seller monthly free post allowance!');
         navigate(`/listing/${listingRes.data.id || listingRes.data.slug}`);
         return;
       }
@@ -343,12 +374,45 @@ export default function PostListing() {
     <div className="min-h-screen py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-black">Post Your Ad</h1>
-          <p className="text-muted-foreground mt-1">
+        <div className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-black text-foreground">Post Your Ad</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             List your gaming gear and reach thousands of buyers in Kerala
           </p>
         </div>
+
+        {/* Verified Seller Monthly Free Posts Banner */}
+        {allowanceData?.is_verified && (
+          <div className="mb-6 bg-gradient-to-r from-violet-500/10 via-purple-500/5 to-card dark:from-violet-950/40 dark:via-purple-900/20 dark:to-card border border-violet-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-testid="verified-post-allowance-banner">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-sm text-foreground">Verified Seller Benefit</h4>
+                  <Badge className="bg-emerald-500/15 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px] font-semibold">
+                    3 Free Listings / Month
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {allowanceData.remaining > 0 ? (
+                    <span>
+                      You have <strong className="text-emerald-700 dark:text-emerald-400 font-semibold">{allowanceData.remaining} free listing{allowanceData.remaining > 1 ? 's' : ''}</strong> remaining for {allowanceData.month}. This listing will be published <strong className="text-foreground">instantly for free</strong> without fees!
+                    </span>
+                  ) : (
+                    <span>
+                      You have used all <strong className="text-foreground">{allowanceData.limit} free listings</strong> for {allowanceData.month}. Standard listing service charge (₹8.47 + GST) applies.
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="text-xs font-mono font-bold text-foreground bg-muted/70 dark:bg-muted/40 px-3 py-1.5 rounded-lg border border-border shrink-0 text-center shadow-xs">
+              {allowanceData.used} / {allowanceData.limit} Used
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Basic Details */}
@@ -497,7 +561,9 @@ export default function PostListing() {
             {priceType !== 'free' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="price">Price (₹) *</Label>
+                  <Label htmlFor="price">
+                    Price (₹) {priceType === 'negotiable' ? '(Optional starting price)' : '*'}
+                  </Label>
                   <span className="text-xs text-muted-foreground">Max ₹10,00,000</span>
                 </div>
                 <Input
@@ -868,12 +934,17 @@ export default function PostListing() {
                   <p className="font-bold text-base text-foreground">
                     Listing Service Charge: {pricing.formattedBaseFee}
                   </p>
-                  <span className="text-xs bg-violet-500/10 text-violet-500 font-semibold px-2.5 py-1 rounded-md border border-violet-500/20">
-                    Payable with GST ({pricing.gstPercentage}%): {pricing.formattedTotal}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-1 rounded-md border border-emerald-500/20">
+                      90 Days Validity
+                    </span>
+                    <span className="text-xs bg-violet-500/10 text-violet-500 font-semibold px-2.5 py-1 rounded-md border border-violet-500/20">
+                      Payable with GST ({pricing.gstPercentage}%): {pricing.formattedTotal}
+                    </span>
+                  </div>
                 </div>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                  This nominal listing service charge ({pricing.formattedTotalWithGst}) helps us maintain the marketplace, reduce spam and unwanted posts, and provide an ad-free experience.
+                  This nominal listing service charge ({pricing.formattedTotalWithGst}) publishes your listing for a <strong>90-day active validity period</strong>. Non-refundable once published or after the 90-day validity period.
                 </p>
               </div>
             </div>
@@ -912,7 +983,7 @@ export default function PostListing() {
           <DialogHeader>
             <DialogTitle>Complete Payment</DialogTitle>
             <DialogDescription>
-              Listing service charge breakdown & confirmation
+              Listing service charge breakdown & 90-day validity confirmation
             </DialogDescription>
           </DialogHeader>
 
@@ -924,30 +995,34 @@ export default function PostListing() {
                 <span className="font-mono font-semibold">{pricing.formattedBaseFee}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">GST ({pricing.gstPercentage}%)</span>
+                <span className="text-muted-foreground">Statutory GST ({pricing.gstPercentage}%)</span>
                 <span className="font-mono font-semibold">{pricing.formattedGstAmount}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm text-emerald-700 dark:text-emerald-400">
+                <span>Post Validity Period</span>
+                <span className="font-semibold">90 Days Active</span>
               </div>
               <div className="flex justify-between items-center pt-2.5 border-t border-border">
                 <span className="font-bold text-base">Amount Payable</span>
-                <span className="font-mono font-bold text-xl text-violet-500" data-testid="payment-total-amount">
+                <span className="font-mono font-bold text-xl text-violet-700 dark:text-violet-400" data-testid="payment-total-amount">
                   {pricing.formattedTotal}
                 </span>
               </div>
             </div>
 
             {/* Anti-spam & Ad-free explanation */}
-            <div className="bg-violet-500/5 border border-violet-500/15 rounded-lg p-3 text-xs text-muted-foreground leading-relaxed">
-              The listing service charge consists of a base service charge of {pricing.formattedBaseFee} plus {pricing.gstPercentage}% GST ({pricing.formattedGstAmount}), totaling {pricing.formattedTotal}. This helps maintain the marketplace, reduce spam, and keep GGS ad-free.
+            <div className="bg-violet-500/5 dark:bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-xs text-zinc-700 dark:text-muted-foreground leading-relaxed">
+              The listing service charge consists of a base service charge of {pricing.formattedBaseFee} plus {pricing.gstPercentage}% GST ({pricing.formattedGstAmount}), totaling {pricing.formattedTotal}. Your post will remain active for 90 days. This helps maintain the marketplace, reduce spam, and keep GGS ad-free.
             </div>
 
             {/* No Refund Policy Box */}
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1.5 text-xs">
               <div className="flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>No Refund Policy</span>
+                <span>No Refund After 90 Days Validity Period Policy</span>
               </div>
               <p className="text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
-                The {pricing.formattedTotal} listing service charge ({pricing.formattedBaseFee} + {pricing.gstPercentage}% GST) is strictly non-refundable once payment is completed. No refund will be provided if your listing is deleted by you, expires, is removed by an administrator/moderator, or violates marketplace rules.
+                The {pricing.formattedTotal} listing service charge ({pricing.formattedBaseFee} + {pricing.gstPercentage}% GST) is strictly non-refundable once payment is completed. <strong>No refund is provided after the 90-day validity period, upon listing expiry, if deleted by you, or if removed by an administrator/moderator for policy violations.</strong>
               </p>
             </div>
 
@@ -963,7 +1038,7 @@ export default function PostListing() {
                 htmlFor="no-refund-acknowledgement"
                 className="text-xs text-muted-foreground leading-tight cursor-pointer select-none"
               >
-                I understand that the {pricing.formattedTotal} listing service charge ({pricing.formattedBaseFee} + {pricing.gstPercentage}% GST) is non-refundable, including if my listing is deleted by me or removed by an administrator.
+                I understand that this listing is valid for 90 days and the {pricing.formattedTotal} service fee is non-refundable, including after the 90-day validity period, upon expiry, or if deleted by me or removed by an administrator.
               </label>
             </div>
 

@@ -25,8 +25,13 @@ const verifyToken = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ detail: 'User not found' });
     }
-    if (user.is_suspended) {
-      return res.status(403).json({ detail: 'Account is suspended' });
+    if (user.is_suspended || user.is_banned) {
+      return res.status(403).json({
+        detail: 'Your account has been suspended. Please contact support if you believe this is a mistake.',
+        is_suspended: true,
+        is_banned: true,
+        ban_reason: user.ban_reason || null
+      });
     }
     req.user = user;
     next();
@@ -58,7 +63,7 @@ const optionalAuth = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await User.findOne({ id: decoded.user_id }).lean();
-    if (user && !user.is_suspended) {
+    if (user && !user.is_suspended && !user.is_banned) {
       req.user = user;
     } else {
       req.user = null;

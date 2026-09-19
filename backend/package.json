@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node tests/api.test.js && node tests/image_optimization.test.js && node tests/product_views.test.js && node tests/avatar_profile.test.js && node tests/moderation.test.js && node tests/clean_initialization.test.js"
+    "test": "node tests/api.test.js && node tests/image_optimization.test.js && node tests/product_views.test.js && node tests/avatar_profile.test.js && node tests/moderation.test.js && node tests/clean_initialization.test.js && node tests/taluk_filter.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

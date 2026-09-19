@@ -43,6 +43,10 @@ async function performCleanProductionInitialization() {
   const delListings = await Listing.deleteMany({});
   console.log(`   - Purged Listings/Posts:           ${delListings.deletedCount}`);
 
+  // Reset categories to standard authoritative taxonomy
+  const delCategories = await Category.deleteMany({});
+  console.log(`   - Purged Non-standard Categories:  ${delCategories.deletedCount}`);
+
   const delReviews = await Review.deleteMany({});
   console.log(`   - Purged Reviews/Comments:         ${delReviews.deletedCount}`);
 
@@ -142,7 +146,7 @@ async function performCleanProductionInitialization() {
   console.log(`🚩 Reports:                      ${reportsCount} (Expected: 0)`);
   console.log(`🛡️  Moderation Records:           ${modRecordsCount} (Expected: 0)`);
   console.log(`📂 Categories (Taxonomy):        ${categoriesCount} (Expected: 6)`);
-  console.log(`📄 Static Legal Pages:           ${pagesCount} (Expected: 8)`);
+  console.log(`📄 Static Legal Pages:           ${pagesCount} (Expected: 9)`);
   console.log('------------------------------------------------------------\n');
 
   if (usersCount === 1 && listingsCount === 0 && reviewsCount === 0 && messagesCount === 0 && categoriesCount === 6) {

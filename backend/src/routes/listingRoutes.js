@@ -10,13 +10,15 @@ const {
   updateListing,
   deleteListing,
   markListingSold,
-  getMyListings
+  getMyListings,
+  getFreePostsAllowance
 } = require('../controllers/listingController');
 const { verifyToken, optionalAuth } = require('../middleware/authMiddleware');
 
 router.get('/listings', getListings);
 router.get('/listings/featured', getFeaturedListings);
 router.get('/listings/latest', getLatestListings);
+router.get('/listings/free-posts-allowance', verifyToken, getFreePostsAllowance);
 router.get('/my-listings', verifyToken, getMyListings);
 router.get('/listings/:listing_id', getListing);
 router.post('/listings/:listing_id/view', optionalAuth, recordListingView);

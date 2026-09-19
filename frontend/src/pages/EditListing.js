@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group';
 import { toast } from 'sonner';
 import { Upload, X, Loader2, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { getDistricts, getTaluks, getAreas, formatLocation, getKeralaCoordinates } from '../lib/keralaLocations';
@@ -36,6 +37,7 @@ export default function EditListing() {
   const [categoryId, setCategoryId] = useState('');
   const [subcategoryId, setSubcategoryId] = useState('');
   const [itemType, setItemType] = useState('physical');
+  const [priceType, setPriceType] = useState('fixed');
   const [price, setPrice] = useState('');
   const [condition, setCondition] = useState('');
   const [specifications, setSpecifications] = useState([{ key: '', value: '' }]);
@@ -57,6 +59,8 @@ export default function EditListing() {
   const [newImages, setNewImages] = useState([]);
   const [newImagePreviews, setNewImagePreviews] = useState([]);
 
+  const [listingData, setListingData] = useState(null);
+
   useEffect(() => {
     fetchData();
   }, [id]);
@@ -69,6 +73,7 @@ export default function EditListing() {
       ]);
 
       const listing = listingRes.data;
+      setListingData(listing);
       
       // Check authorization
       if (listing.seller_id !== user?.id && user?.role !== 'admin') {
@@ -88,7 +93,8 @@ export default function EditListing() {
       setCategoryId(listing.category_id);
       setSubcategoryId(listing.subcategory_id || '');
       setItemType(getItemTypeForCategory(loadedCat || listing.item_type));
-      setPrice(listing.price.toString());
+      setPriceType(listing.price_type || 'fixed');
+      setPrice(listing.price !== undefined && listing.price !== null ? listing.price.toString() : '');
       setCondition(listing.condition);
       setDistrict(listing.location_district || '');
       setTaluk(listing.location_taluk || '');
@@ -180,6 +186,15 @@ export default function EditListing() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (user?.role !== 'admin' && !listingData?.free_edit_available) {
+      if (listingData?.free_edit_status === 'used') {
+        toast.error('Free edit has already been used for this listing');
+      } else {
+        toast.error('The 24-hour free edit window has expired');
+      }
+      return;
+    }
+
     const titleCheck = validateFieldLength(title, FIELD_LIMITS.TITLE, true, 'Title');
     if (!titleCheck.valid) {
       toast.error(titleCheck.error);
@@ -197,19 +212,29 @@ export default function EditListing() {
       return;
     }
 
-    if (!categoryId || !price || !condition || !district || !taluk) {
+    if (!categoryId || !condition || !district || !taluk) {
       toast.error('Please fill in all required fields');
       return;
     }
 
-    const numPrice = parseFloat(price);
-    if (isNaN(numPrice) || numPrice <= 0) {
+    if (priceType !== 'free' && priceType !== 'negotiable' && !price) {
       toast.error('Please enter a valid price');
       return;
     }
-    if (numPrice > MAX_PRICE) {
-      toast.error('Maximum price allowed is ₹10,00,000');
-      return;
+
+    let numPrice = 0;
+    if (priceType === 'free') {
+      numPrice = 0;
+    } else if (price) {
+      numPrice = parseFloat(price);
+      if (isNaN(numPrice) || numPrice < 0) {
+        toast.error('Please enter a valid price');
+        return;
+      }
+      if (numPrice > MAX_PRICE) {
+        toast.error('Maximum price allowed is ₹10,00,000');
+        return;
+      }
     }
 
     const currentMaxSpecs = getMaxSpecificationsForCategory(selectedCategory);
@@ -250,6 +275,7 @@ export default function EditListing() {
         item_type: resolvedItemType,
         specifications: validSpecs,
         price: numPrice,
+        price_type: priceType,
         condition,
         location: fullLocation,
         location_district: district,
@@ -292,6 +318,71 @@ export default function EditListing() {
         </div>
 
         <div className="bg-card border border-border rounded-xl p-6">
+          {/* Free Edit Policy Notification Banner */}          {/* Validity & Expiry Info Card */}
+          {listingData && (
+            <div className="mb-4 p-3 bg-muted/40 border border-border rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-foreground">Post Validity:</span>
+                <span className="text-muted-foreground">{listingData.validity_days || 90} Days Total</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {listingData.published_at && (
+                  <span className="text-muted-foreground">
+                    Posted: {new Date(listingData.published_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                )}
+                {listingData.expires_at && (
+                  <span className={listingData.is_expired ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                    Expires: {new Date(listingData.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {listingData.days_remaining !== undefined && ` (${listingData.days_remaining}d left)`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Edit Allowance Banners */}
+          {user?.role === 'admin' ? (
+            <div className="mb-6 p-3.5 bg-violet-500/10 border border-violet-500/30 rounded-xl flex items-center gap-2 text-xs text-violet-800 dark:text-violet-300 font-medium">
+              <span className="font-bold uppercase tracking-wider text-[10px] bg-violet-600 text-white px-2 py-0.5 rounded">Admin</span>
+              <span>Administrative mode: Unrestricted editing capabilities enabled.</span>
+            </div>
+          ) : listingData?.free_edit_granted && listingData?.free_edit_allowed ? (
+            <div className="mb-6 p-3.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl space-y-1 text-xs text-cyan-800 dark:text-cyan-300">
+              <div className="flex items-center justify-between font-bold">
+                <span>✨ Admin-Granted One-Time Free Edit Allowance Active</span>
+                <span className="text-[10px] uppercase font-mono bg-cyan-500/20 px-2 py-0.5 rounded">Approved</span>
+              </div>
+              <p className="text-muted-foreground text-[11px]">
+                An administrator approved a one-time free edit for this listing. Saving changes now will apply your updates.
+              </p>
+            </div>
+          ) : listingData?.free_edit_available ? (
+            <div className="mb-6 p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1 text-xs text-emerald-800 dark:text-emerald-300">
+              <div className="flex items-center justify-between font-bold">
+                <span>✓ 1 Free Edit Available</span>
+                <span>{listingData.free_edit_hours_left || 24}h Remaining</span>
+              </div>
+              <p className="text-muted-foreground text-[11px]">
+                You receive exactly one free edit during the first 24 hours of posting. Saving changes now will consume this free edit.
+              </p>
+            </div>
+          ) : listingData?.free_edit_status === 'used' ? (
+            <div className="mb-6 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1 text-xs text-amber-800 dark:text-amber-300">
+              <span className="font-bold">⚠ One-Time Free Edit Already Used</span>
+              <p className="text-muted-foreground text-[11px]">
+                Your one-time free edit for this listing has already been consumed. If you require critical changes, you can request an edit allowance via <Link to="/dashboard" className="text-violet-600 dark:text-violet-400 underline font-semibold">Dashboard → Tickets & Reports</Link>.
+              </p>
+            </div>
+          ) : (
+            <div className="mb-6 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1 text-xs text-amber-800 dark:text-amber-300">
+              <span className="font-bold">⚠ Free Edit Window Expired</span>
+              <p className="text-muted-foreground text-[11px]">
+                The standard 24-hour free edit window for this listing has ended. You can request a one-time free edit allowance from support in <Link to="/dashboard" className="text-violet-600 dark:text-violet-400 underline font-semibold">Dashboard → Tickets & Reports</Link>.
+              </p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Title */}
             <div className="space-y-2">
@@ -355,36 +446,67 @@ export default function EditListing() {
               )}
             </div>
 
+            {/* Price Type */}
+            <div className="space-y-2">
+              <Label className="font-semibold text-sm">Price Type *</Label>
+              <RadioGroup value={priceType} onValueChange={setPriceType} className="flex flex-wrap gap-4">
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="fixed" id="edit-fixed" />
+                  <Label htmlFor="edit-fixed" className="cursor-pointer text-sm">Fixed Price</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="negotiable" id="edit-negotiable" />
+                  <Label htmlFor="edit-negotiable" className="cursor-pointer text-sm">Negotiable</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="exchange" id="edit-exchange" />
+                  <Label htmlFor="edit-exchange" className="cursor-pointer text-sm">Exchange</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="free" id="edit-free" />
+                  <Label htmlFor="edit-free" className="cursor-pointer text-sm">Free</Label>
+                </div>
+              </RadioGroup>
+            </div>
+
             {/* Price & Condition */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <div className="space-y-2">
                 <div className="flex items-center justify-between min-h-[1.5rem]">
-                  <Label htmlFor="price" className="font-semibold text-sm">Price (₹) *</Label>
-                  <span className="text-xs text-muted-foreground">Max ₹10,00,000</span>
+                  <Label htmlFor="price" className="font-semibold text-sm">
+                    {priceType === 'free' ? 'Price' : 'Price (₹) *'}
+                  </Label>
+                  {priceType !== 'free' && <span className="text-xs text-muted-foreground">Max ₹10,00,000</span>}
                 </div>
-                <Input
-                  id="price"
-                  type="number"
-                  placeholder="Enter price"
-                  value={price}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '' || Number(val) >= 0) {
-                      setPrice(val);
-                    }
-                  }}
-                  required
-                  min="1"
-                  max={MAX_PRICE}
-                  className="h-10 w-full"
-                  data-testid="edit-price-input"
-                />
-                {price && Number(price) > 0 && Number(price) <= MAX_PRICE && (
+                {priceType === 'free' ? (
+                  <div className="h-10 px-3 py-2 rounded-md border border-border bg-muted/40 text-emerald-400 font-semibold text-sm flex items-center">
+                    FREE
+                  </div>
+                ) : (
+                  <Input
+                    id="price"
+                    type="number"
+                    placeholder={priceType === 'negotiable' ? 'Enter starting price (optional)' : 'Enter price'}
+                    value={price}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || Number(val) >= 0) {
+                        setPrice(val);
+                      }
+                    }}
+                    required={priceType === 'fixed'}
+                    min="0"
+                    max={MAX_PRICE}
+                    className="h-10 w-full"
+                    data-testid="edit-price-input"
+                  />
+                )}
+                {priceType !== 'free' && price && Number(price) > 0 && Number(price) <= MAX_PRICE && (
                   <p className="text-xs font-mono text-violet-400">
-                    ₹{Number(price).toLocaleString('en-IN')}
+                    ₹{Number(price).toLocaleString('en-IN')} {priceType === 'negotiable' ? '(Negotiable)' : ''}
                   </p>
                 )}
-                {price && Number(price) > MAX_PRICE && (
+                {priceType !== 'free' && price && Number(price) > MAX_PRICE && (
                   <p className="text-xs font-medium text-red-500">
                     Maximum price allowed is ₹10,00,000
                   </p>
@@ -716,7 +838,7 @@ export default function EditListing() {
               <Button
                 type="submit"
                 className="flex-1 bg-violet-600 hover:bg-violet-700"
-                disabled={saving}
+                disabled={saving || (user?.role !== 'admin' && !listingData?.free_edit_available)}
                 data-testid="edit-submit"
               >
                 {saving ? (
@@ -724,6 +846,8 @@ export default function EditListing() {
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     Saving...
                   </>
+                ) : user?.role !== 'admin' && !listingData?.free_edit_available ? (
+                  listingData?.free_edit_status === 'used' ? 'Free Edit Already Used' : 'Free Edit Window Expired'
                 ) : (
                   'Save Changes'
                 )}

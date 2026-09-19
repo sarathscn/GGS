@@ -68,7 +68,7 @@ async function runCleanInitializationTests() {
     assert(reportCount === 0, `Reports count is 0 (Actual: ${reportCount})`);
     assert(modCount === 0, `Moderation records count is 0 (Actual: ${modCount})`);
     assert(categoryCount === 6, `Categories taxonomy count is 6 (Actual: ${categoryCount})`);
-    assert(pageCount === 8, `Static legal pages count is 8 (Actual: ${pageCount})`);
+    assert(pageCount === 9, `Static legal pages count is 9 (Actual: ${pageCount})`);
 
     const adminUser = await User.findOne({ email: 'admin@ggs.com' });
     assert(adminUser !== null, 'Admin user admin@ggs.com exists in database');

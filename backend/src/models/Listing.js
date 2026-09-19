@@ -66,6 +66,36 @@ const listingSchema = new mongoose.Schema(
     previous_status: { type: String, default: null },
     created_by_admin: { type: Boolean, default: false, index: true },
     is_free_listing: { type: Boolean, default: false },
+    published_at: { type: String, default: null },
+    expires_at: { type: String, default: null, index: true },
+    validity_days: { type: Number, default: 90 },
+    extension_count: { type: Number, default: 0 },
+    extension_history: [
+      {
+        requested_at: { type: String },
+        approved_at: { type: String },
+        previous_expires_at: { type: String },
+        new_expires_at: { type: String },
+        approved_by: { type: String },
+        extension_days: { type: Number, default: 30 },
+        reason: { type: String },
+        admin_notes: { type: String }
+      }
+    ],
+    free_edit_allowed: { type: Boolean, default: false, index: true },
+    free_edit_granted_at: { type: String, default: null },
+    free_edit_granted_by: { type: String, default: null },
+    free_edit_reason: { type: String, default: null },
+    free_edit_history: [
+      {
+        granted_at: { type: String },
+        granted_by: { type: String },
+        reason: { type: String },
+        used_at: { type: String }
+      }
+    ],
+    free_edit_used: { type: Boolean, default: false, index: true },
+    free_edit_used_at: { type: String, default: null },
     sold_at: { type: String, default: null },
     sold_to_user_id: { type: String, default: null },
     updated_at: { type: String, default: null },
@@ -85,5 +115,6 @@ const listingSchema = new mongoose.Schema(
 
 listingSchema.index({ seller_id: 1, status: 1, is_deleted: 1 });
 listingSchema.index({ category_id: 1, status: 1, is_deleted: 1 });
+listingSchema.index({ expires_at: 1, status: 1 });
 
 module.exports = mongoose.model('Listing', listingSchema);

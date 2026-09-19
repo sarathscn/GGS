@@ -10,6 +10,7 @@ const {
   archiveListing,
   getPayments,
   getStats,
+  getBadgeCounts,
   banUser,
   unbanUser,
   deleteUser,
@@ -22,6 +23,7 @@ const {
   approveKYC,
   rejectKYC,
   revokeKYC,
+  revokeUserVerification,
   reverifyKYC,
   getFlaggedMessages,
   reviewFlaggedMessage,
@@ -40,24 +42,32 @@ const {
   toggleModerationTerm,
   importModerationTerms,
   exportModerationTerms,
-  getAuditLogs
+  getAuditLogs,
+  getAuditStats,
+  getListingStats,
+  getKYCStats,
+  viewListingAdmin
 } = require('../controllers/adminController');
 const { verifyAdmin } = require('../middleware/authMiddleware');
 
 router.get('/admin/users', verifyAdmin, getUsers);
 router.put('/admin/users/:user_id', verifyAdmin, updateUser);
+router.get('/admin/listings/stats', verifyAdmin, getListingStats);
 router.get('/admin/listings', verifyAdmin, getListings);
+router.post('/admin/listings/:listing_id/view', verifyAdmin, viewListingAdmin);
 router.put('/admin/listings/:listing_id', verifyAdmin, updateListing);
 router.delete('/admin/listings/:listing_id', verifyAdmin, deleteListingAdmin);
 router.post('/admin/listings/:listing_id/restore', verifyAdmin, restoreListing);
 router.post('/admin/listings/:listing_id/archive', verifyAdmin, archiveListing);
 router.get('/admin/payments', verifyAdmin, getPayments);
 router.get('/admin/stats', verifyAdmin, getStats);
+router.get('/admin/badge-counts', verifyAdmin, getBadgeCounts);
 
 router.post('/admin/users/:user_id/ban', verifyAdmin, banUser);
 router.post('/admin/users/:user_id/unban', verifyAdmin, unbanUser);
 router.delete('/admin/users/:user_id', verifyAdmin, deleteUser);
 router.post('/admin/users/:user_id/verify', verifyAdmin, verifyUser);
+router.post('/admin/users/:user_id/revoke-verification', verifyAdmin, revokeUserVerification);
 router.post('/admin/users/:user_id/role', verifyAdmin, changeUserRole);
 
 router.post('/admin/users/bulk', verifyAdmin, bulkUserAction);
@@ -66,6 +76,7 @@ router.post('/admin/reports/bulk', verifyAdmin, bulkReportAction);
 
 router.post('/admin/reports/:report_id/remove-listing', verifyAdmin, removeReportedListing);
 
+router.get('/admin/kyc/stats', verifyAdmin, getKYCStats);
 router.get('/admin/kyc', verifyAdmin, getKYCSubmissions);
 router.put('/admin/kyc/:kyc_id/approve', verifyAdmin, approveKYC);
 router.put('/admin/kyc/:kyc_id/reject', verifyAdmin, rejectKYC);
@@ -92,6 +103,7 @@ router.patch('/admin/moderation/terms/:term_id/toggle', verifyAdmin, toggleModer
 router.post('/admin/moderation/terms/import', verifyAdmin, importModerationTerms);
 router.get('/admin/moderation/terms/export', verifyAdmin, exportModerationTerms);
 
+router.get('/admin/audit-logs/stats', verifyAdmin, getAuditStats);
 router.get('/admin/audit-logs', verifyAdmin, getAuditLogs);
 
 module.exports = router;
