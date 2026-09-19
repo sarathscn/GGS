@@ -27,6 +27,17 @@ api.interceptors.response.use(
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
+    } else if (
+      error.response?.status === 403 &&
+      (error.response?.data?.is_suspended ||
+        error.response?.data?.is_banned ||
+        error.response?.data?.detail?.toLowerCase()?.includes('suspended') ||
+        error.response?.data?.detail?.toLowerCase()?.includes('banned'))
+    ) {
+      localStorage.removeItem('ggs-token');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login?suspended=1';
+      }
     }
     return Promise.reject(error);
   }

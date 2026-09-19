@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
+import FeaturedCarousel from '../components/FeaturedCarousel';
 import { 
   Monitor, 
   Cpu, 
@@ -13,10 +14,12 @@ import {
 
 export default function Categories() {
   const [categories, setCategories] = useState([]);
+  const [featuredListings, setFeaturedListings] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchCategories();
+    fetchFeaturedListings();
   }, []);
 
   const fetchCategories = async () => {
@@ -27,6 +30,18 @@ export default function Categories() {
       console.error('Failed to fetch categories:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchFeaturedListings = async () => {
+    try {
+      const response = await api.get('/listings?featured=true');
+      const activeFeatured = (response.data || []).filter(
+        (item) => item.featured === true && item.status === 'active'
+      );
+      setFeaturedListings(activeFeatured);
+    } catch (error) {
+      console.error('Failed to fetch featured listings:', error);
     }
   };
 
@@ -44,6 +59,12 @@ export default function Categories() {
   };
 
   const categoryImages = {
+    'pc-components': 'https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?w=600',
+    'peripherals': 'https://images.unsplash.com/photo-1660391532247-4a8ad1060817?w=600',
+    'consoles': 'https://images.unsplash.com/photo-1622979138084-c03ae28968ed?w=600',
+    'systems': 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=600',
+    'digital': 'https://images.unsplash.com/photo-1614680376593-902f74cf0d41?w=600',
+    'accessories': 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600',
     'gaming-pcs': 'https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=600',
     'graphics-cards': 'https://images.unsplash.com/photo-1757356747708-f11f10dbda7e?w=600',
     'processors': 'https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?w=600',
@@ -95,7 +116,7 @@ export default function Categories() {
               <Link
                 key={category.id}
                 to={`/category/${category.slug}`}
-                className={`group bg-card border border-border rounded-xl overflow-hidden hover:border-violet-500/50 transition-all duration-300 card-glow animate-fadeIn stagger-${index % 6 + 1}`}
+                className={`group bg-card border border-border/80 rounded-xl overflow-hidden hover:border-violet-500/50 transition-all duration-300 card-glow animate-fadeIn stagger-${index % 6 + 1}`}
                 data-testid={`category-card-${category.slug}`}
               >
                 <div className="relative aspect-video overflow-hidden">
@@ -104,27 +125,51 @@ export default function Categories() {
                     alt={category.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-                  <div className="absolute bottom-4 left-4 right-4">
+                  {/* Strong dark gradient overlay: fading smoothly from transparent at the top into near-black at the bottom (55-70% opacity near title area) */}
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      background:
+                        'linear-gradient(180deg, rgba(10, 11, 18, 0.05) 0%, rgba(10, 11, 18, 0.15) 30%, rgba(10, 11, 18, 0.58) 60%, rgba(10, 11, 18, 0.70) 78%, rgba(10, 11, 18, 0.95) 100%)',
+                    }}
+                  />
+                  <div className="absolute bottom-4 left-4 right-4 z-10">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-violet-600/80 backdrop-blur-sm flex items-center justify-center">
-                        <IconComponent className="w-5 h-5 text-white" />
+                      <div className="w-10 h-10 rounded-lg bg-violet-600/90 backdrop-blur-sm flex items-center justify-center shrink-0 shadow-md">
+                        <Gamepad2 className="w-5 h-5 text-white" />
                       </div>
-                      <h3 className="font-bold text-white text-lg">{category.name}</h3>
+                      <h3 className="font-bold text-white text-lg tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                        {category.name}
+                      </h3>
                     </div>
                   </div>
                 </div>
-                <div className="p-4">
-                  <p className="text-sm text-muted-foreground mb-3">{category.description}</p>
-                  <div className="flex items-center text-violet-500 text-sm font-medium group-hover:gap-2 transition-all">
+                <div className="p-4 bg-card">
+                  <p className="text-sm text-muted-foreground dark:text-zinc-300 line-clamp-2 leading-relaxed mb-3 font-medium">
+                    {category.description}
+                  </p>
+                  <div className="flex items-center text-violet-600 dark:text-violet-400 font-bold text-sm group-hover:text-violet-700 dark:group-hover:text-violet-300 group-hover:gap-2 transition-all">
                     <span>Browse Listings</span>
-                    <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    <ArrowRight className="w-4 h-4 ml-1.5 group-hover:translate-x-1 transition-transform text-violet-600 dark:text-violet-400" />
                   </div>
                 </div>
               </Link>
             );
           })}
         </div>
+
+        {/* Featured Posts Carousel at the Bottom of All Categories */}
+        {featuredListings.length > 0 && (
+          <div className="mt-16 pt-12 border-t border-border/60" data-testid="all-categories-featured-section">
+            <FeaturedCarousel
+              listings={featuredListings}
+              title="Featured Posts"
+              subtitle="Discover highlighted gaming gear from trusted sellers"
+              desktopCount={3}
+              className="relative focus:outline-none"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

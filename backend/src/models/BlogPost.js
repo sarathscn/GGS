@@ -12,8 +12,13 @@ const blogPostSchema = new mongoose.Schema(
     cover_image: { type: String, default: '' },
     tags: [{ type: String }],
     author_id: { type: String, required: true, index: true },
+    author_name: { type: String, default: 'Admin' },
+    status: { type: String, enum: ['published', 'draft'], default: 'published', index: true },
+    seo_title: { type: String, default: '' },
+    seo_description: { type: String, default: '' },
     views_count: { type: Number, default: 0 },
-    created_at: { type: String, default: () => new Date().toISOString() }
+    created_at: { type: String, default: () => new Date().toISOString() },
+    updated_at: { type: String, default: () => new Date().toISOString() }
   },
   {
     collection: 'blog_posts',

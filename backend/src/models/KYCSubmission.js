@@ -8,10 +8,13 @@ const kycSubmissionSchema = new mongoose.Schema(
     document_type: { type: String, required: true }, // aadhaar, pan, driving_license, voter_id
     document_number: { type: String, required: true }, // masked e.g. ****1234
     document_image_url: { type: String, required: true },
-    status: { type: String, default: 'pending' }, // pending, approved, rejected
-    rejection_reason: { type: String, default: null },
+    status: { type: String, default: 'pending' }, // pending, approved, rejected, revoked, reverification_requested
+    decision: { type: String, default: null }, // VERIFIED, REJECTED, REVOKED, REVERIFICATION_REQUESTED
+    rejection_reason: { type: String, default: null }, // User-facing reason / remark from admin
+    admin_notes: { type: String, default: null }, // Internal notes for admins
     reviewed_by: { type: String, default: null },
     reviewed_at: { type: String, default: null },
+    updated_at: { type: String, default: () => new Date().toISOString() },
     created_at: { type: String, default: () => new Date().toISOString() }
   },
   {

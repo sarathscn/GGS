@@ -71,8 +71,18 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
+                <Link to="/guide" className="text-muted-foreground hover:text-violet-500 transition-colors font-medium">
+                  User Guide (How to Use GGs)
+                </Link>
+              </li>
+              <li>
                 <Link to="/blog" className="text-muted-foreground hover:text-violet-500 transition-colors">
-                  Guides & Blog
+                  Blog & Announcements
+                </Link>
+              </li>
+              <li>
+                <Link to="/blog/safety" className="text-emerald-400 hover:text-emerald-300 transition-colors font-semibold">
+                  Safety & Fraud Center (15 Guides)
                 </Link>
               </li>
             </ul>
@@ -83,13 +93,33 @@ export default function Footer() {
             <h3 className="font-bold text-sm text-foreground mb-3 uppercase tracking-wider">Support & Trust</h3>
             <ul className="space-y-2 text-xs sm:text-sm">
               <li>
-                <Link to="/page/contact" className="text-muted-foreground hover:text-violet-500 transition-colors font-medium text-violet-400">
+                <Link to="/page/about" className="text-muted-foreground hover:text-violet-500 transition-colors">
+                  About Game Gear Swap
+                </Link>
+              </li>
+              <li>
+                <Link to="/page/contact" className="text-violet-400 hover:text-violet-300 transition-colors font-semibold">
                   Contact Support / Report Issue
+                </Link>
+              </li>
+              <li>
+                <Link to="/page/community-guidelines" className="text-muted-foreground hover:text-violet-500 transition-colors">
+                  Community Guidelines
                 </Link>
               </li>
               <li>
                 <Link to="/page/safety" className="text-muted-foreground hover:text-violet-500 transition-colors">
                   Marketplace Safety Policy
+                </Link>
+              </li>
+              <li>
+                <Link to="/page/prohibited-items" className="text-muted-foreground hover:text-violet-500 transition-colors">
+                  Prohibited Items Policy
+                </Link>
+              </li>
+              <li>
+                <Link to="/page/verified-sellers" className="text-muted-foreground hover:text-violet-500 transition-colors">
+                  Verified Sellers Program
                 </Link>
               </li>
               <li>

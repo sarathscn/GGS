@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const StaticPage = require('../models/StaticPage');
 const BlogPost = require('../models/BlogPost');
 const User = require('../models/User');
+const { SAFETY_BLOG_ARTICLES } = require('./safetyBlogArticles');
 
 const STATIC_PAGES = [
   {
@@ -142,10 +143,13 @@ Welcome to **Game Gear Swap (GGS)**. By accessing, browsing, registering an acco
 
 ---
 
-## 4. Listing Service Charge & Payments
+## 4. Listing Service Charge, 90-Day Validity & Extensions
 
 - **Publishing Service Fee**: GGS charges a nominal base service charge of **₹8.47** plus applicable statutory GST (**18% = ₹1.53**, total payable: **₹10.00**) to publish a listing on the marketplace.
-- **Non-Refundable Policy**: As detailed in our [Refund Policy](/page/refund-policy), this listing service charge is non-refundable once payment is completed, regardless of whether the ad is subsequently deleted by the user, expires, or is removed for rule violations.
+- **90-Day Post Validity**: Each listing has an active validity period of **90 days** from the date of publication.
+- **30-Day Expiry Extension**: Sellers may request a one-time 30-day extension per listing via support tickets prior to expiration.
+- **One-Time Free Edit Allowance**: Sellers may request a one-time free edit allowance for their listing via support tickets.
+- **No Refund Policy**: As detailed in our [Refund Policy](/page/refund-policy), this listing service charge is non-refundable once payment is completed, including after the 90-day validity period, upon expiry, or if the ad is deleted by the user or removed for rule violations.
 
 ---
 
@@ -169,37 +173,45 @@ GGS reserves the right to review listings, edit category placements, reject non-
 
 **Last Updated**: August 2026
 
-At **Game Gear Swap (GGS)**, we maintain clear and transparent policies regarding all marketplace transactions and service charges.
+At **Game Gear Swap (GGS)**, we maintain clear and transparent policies regarding all marketplace transactions, post validity, and service charges.
 
 ---
 
-## 1. Listing Service Charge
+## 1. Listing Service Charge & 90-Day Validity
 
 To maintain a high-quality, ad-free marketplace free of spam bots and bulk automated posts, GGS charges a nominal service fee:
 
 - **Base Listing Service Charge**: **₹8.47**
 - **Statutory GST (18%)**: **₹1.53**
 - **Total Amount Payable**: **₹10.00**
+- **Listing Validity**: **90 Days Active**
 
 This fee directly covers the operational costs of cataloging, server infrastructure, real-time database hosting, map geolocation services, and ad moderation.
 
 ---
 
-## 2. Non-Refundable Nature of the Service Charge
+## 2. Non-Refundable Nature of the Service Charge (No Refund After 90 Days Validity Period)
 
 The **₹10.00 listing service charge (₹8.47 + 18% GST) is strictly non-refundable once payment is successfully completed and the listing is published or queued**.
 
 Specifically, **no refunds or credits will be issued** in the following circumstances:
 
-1. **User Deletion**: You choose to delete, withdraw, or mark your listing as sold before the end of its natural lifecycle.
-2. **Expiration**: Your listing expires naturally after its active duration.
+1. **After 90 Days Validity Period / Expiration**: Your listing expires naturally after its 90-day active duration.
+2. **User Deletion**: You choose to delete, withdraw, or mark your listing as sold before the end of its natural lifecycle.
 3. **Change of Mind**: You decide not to sell the item or choose to sell it elsewhere.
 4. **Moderator Removal / Policy Violations**: Your listing is removed by an administrator or moderator due to violations of our Terms and Conditions, prohibited items policy, fake deal listings, or misleading specifications.
-5. **Account Suspension**: Your account is suspended or banned due to fraudulent activities, abusive behavior, or marketplace violations.
+5. **Account Suspension / Ban**: Your account is suspended or banned due to fraudulent activities, abusive behavior, or marketplace violations.
 
 ---
 
-## 3. Payment Disputes & Statutory Exceptions
+## 3. Expiry Extensions & Free Edit Allowances
+
+- **30-Day Extension**: If your listing is nearing expiration without selling, you may request a single **30-day extension** via support ticket directly from your dashboard.
+- **One-Time Free Edit Allowance**: Sellers can submit a request for a one-time free edit allowance if major updates are required.
+
+---
+
+## 4. Payment Disputes & Statutory Exceptions
 
 Nothing in this policy is intended to exclude, restrict, or modify any statutory consumer rights, legal guarantees, or mandatory payment gateway dispute resolution procedures established under applicable Indian banking and consumer protection laws.
 
@@ -317,10 +329,263 @@ The **GGS Verified Seller** badge is an official trust indicator awarded to mark
 
 *Note: All verification data is held strictly private under our [Privacy Policy](/page/privacy) and is never shared with third parties or shown to the public.*
 `
+  },
+  {
+    slug: 'community-guidelines',
+    title: 'Community Guidelines',
+    content: `# GGS Community Guidelines
+
+**Building a Safe, Respectful, and Transparent Gaming Hardware Marketplace in Kerala**
+
+At **Game Gear Swap (GGS)**, our mission is to provide an authentic, trustworthy platform where gamers, PC enthusiasts, and hardware builders can trade pre-owned gear with complete peace of mind. These Community Guidelines set the standard of conduct expected from every member.
+
+---
+
+## 1. What You Should Do (Community Best Practices)
+
+- **Be Respectful and Honest**: Treat fellow gamers with courtesy. Accurately describe the condition, history, working state, and specifications of your hardware.
+- **Meet in Safe Public Locations**: Conduct trades in well-lit, public meeting spots (malls, metro stations, gaming cafes, or reputable local computer repair shops).
+- **Inspect and Test Before Paying**: Request live benchmark runs (FurMark, GPU-Z, Cinebench) and test consoles for online network connectivity before completing payments.
+- **Confirm UPI Transactions on Your Own Device**: When selling, always verify that funds have credited your own mobile banking app before handing over the gear. Never rely solely on a buyer's phone screenshot.
+- **Keep Conversations In-App**: Use GGS in-app chat to protect your personal contact details and ensure a documented transaction history.
+- **Report Genuine Violations**: If you encounter suspicious deals, fake hardware, or harassment, submit a report with clear evidence to assist our moderation team.
+
+---
+
+## 2. What You Should Not Do (Prohibitions & Zero Tolerance)
+
+The following activities are strictly prohibited and will result in **immediate account suspension, ad removal, and permanent forfeiture of verification**:
+
+- **No Advance Payment Demands**: Never demand courier fees, token advances, or reservation deposits before allowing physical inspection.
+- **No Counterfeit, Stolen, or Modified Hardware**: Selling stolen equipment, clone accessories, or GPUs with modified/flashed BIOS firmware is strictly prohibited.
+- **No Harassment, Threats, or Abuse**: Bullying, hate speech, abusive language, or discriminatory behavior in chats or reviews will not be tolerated.
+- **No Spamming or Duplicate Listings**: Do not flood the marketplace with identical posts or create fake duplicate accounts to manipulate visibility.
+- **No Scams or Phishing**: Sending reverse QR codes, malicious links, or attempting account takeovers will lead to immediate reporting to cyber police authorities.
+- **No Off-Platform Coercion**: Forcing buyers or sellers to complete deals off-platform to evade safety safeguards is barred.
+
+---
+
+## 3. Reporting & Moderation Enforcement
+
+- **How to Report**: Use the **Report** button on any listing or in any chat conversation to submit a report.
+- **Decision Transparency**: All reports and support tickets are reviewed by administrators. You can track the status, administrative decision, and official remarks in your **Dashboard → Tickets & Reports**.
+- **Good Faith Reporting**: Reports must be submitted in good faith. Misusing the report system to harass other sellers is a policy violation.
+
+---
+
+## 4. Need Assistance?
+
+If you have questions or encounter an issue, please contact our administrative support team through our [Support Portal](/page/contact).
+`
   }
 ];
 
 const BLOG_POSTS = [
+  {
+    title: 'Welcome to GGs: Kerala\'s Dedicated Gaming Hardware Marketplace',
+    slug: 'welcome-to-ggs',
+    excerpt: 'Discover why Game Gear Swap was built, how our localized platform operates, and how we protect gamers across all 14 districts of Kerala.',
+    category: 'Announcements',
+    cover_image: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800',
+    tags: ['Welcome', 'Community', 'KeralaGaming', 'Marketplace'],
+    views_count: 2450,
+    content: `# Welcome to GGs: Kerala's Dedicated Gaming Hardware Marketplace
+
+Welcome to **Game Gear Swap (GGS)**, Kerala's first community-driven peer-to-peer marketplace engineered exclusively for gamers, PC enthusiasts, and hardware builders!
+
+---
+
+## 🎮 Why GGS Exists
+
+For years, local gamers across Kerala faced the same frustrations on generic classifieds: spam bots, suspicious advance payment demands, misleading hardware descriptions, and lack of specialized PC filtering.
+
+GGS was created to solve these exact problems. Whether you are upgrading your graphics card, hunting for rare console editions, swapping mechanical keyboards, or building a custom water-cooled rig, GGS connects you directly with passionate, verified gamers in your neighborhood.
+
+---
+
+## 🛡️ What Makes GGS Different
+
+1. **Anti-Spam Architecture**: A nominal ₹10 listing service fee (₹8.47 + 18% GST) prevents bot farms and spam syndicates from flooding our marketplace.
+2. **Kerala-Centric Location Filtering**: Search and filter by all 14 Districts, Taluks, and Local Areas.
+3. **Hardware-Specific Attributes**: Filter by exact VRAM, CPU generation, switch types, monitor refresh rates, and console revisions.
+4. **Verified Seller Badges**: Completed KYC screening gives buyers peace of mind.
+5. **In-App Real-Time Messaging**: Chat safely without revealing your personal phone number until you choose to.
+
+---
+
+## 🚀 How to Get Started
+
+- **Browse the Marketplace**: Explore hundreds of verified listings across [Marketplace](/marketplace) and [Categories](/categories).
+- **Read Our User Guide**: Check out our comprehensive [User Guide](/guide) for step-by-step instructions.
+- **Join the Community**: Create your account, verify your profile, and start trading today!
+`
+  },
+  {
+    title: 'How to Create Your First Post on GGs: Complete Step-by-Step Guide',
+    slug: 'how-to-create-your-first-post',
+    excerpt: 'Step-by-step posting guide: creating a title, choosing categories, adding custom specs, uploading photos, setting Kerala locations, and publishing your ad.',
+    category: 'Seller Guides',
+    cover_image: 'https://images.unsplash.com/photo-1587202372634-32705e3bf49c?w=800',
+    tags: ['Posting', 'Selling', 'Guide', 'Tutorial'],
+    views_count: 1890,
+    content: `# How to Create Your First Post on GGs: Complete Step-by-Step Guide
+
+Selling your gaming equipment on GGS is designed to be clear, fast, and structured for maximum buyer engagement. Follow this comprehensive guide to publish your first ad.
+
+---
+
+## Step 1: Sign In and Click 'Sell'
+
+Log into your account and click the **+ Sell (Post Your Ad)** button in the top navigation bar.
+
+---
+
+## Step 2: Title & Category Selection
+
+- **Descriptive Title**: Include brand, model, and key highlight (e.g., *MSI GeForce RTX 4070 Gaming X Trio 12GB - Pristine with Box & Bill*).
+- **Category & Subcategory**: Select the precise category (e.g., *PC Components → Graphics Cards* or *Gaming Consoles → PlayStation*).
+
+---
+
+## Step 3: Condition & Custom Specifications
+
+- **Honest Condition**: Choose *Brand New, Like New, Excellent, Good,* or *Fair*.
+- **Add Key Specs**: Add custom spec rows such as VRAM Capacity, Processor Model, Storage Health, or Warranty remaining.
+
+---
+
+## Step 4: Upload Original Photography
+
+- Upload 1 to 5 clear, authentic photos of your actual unit.
+- Show ports, serial number stickers, and original accessories.
+
+---
+
+## Step 5: Price & Kerala Location
+
+- Set a fair price between ₹1 and ₹10,00,000.
+- Select your **District, Taluk, and Area**, and position your pickup pin on Google Maps.
+
+---
+
+## Step 6: Pay the ₹10 Service Fee & Publish
+
+- Review the transparent fee: ₹8.47 Base + ₹1.53 GST = ₹10.00 Total.
+- Complete payment via UPI or Card to publish your ad live across Kerala!
+`
+  },
+  {
+    title: 'How to Report Content Responsibly on GGs',
+    slug: 'how-to-report-content-responsibly',
+    excerpt: 'Learn when to report listings or users, how our moderation team reviews tickets, and how to track admin decisions on your dashboard.',
+    category: 'Safety Guides',
+    cover_image: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
+    tags: ['Reporting', 'Safety', 'Moderation', 'Transparency'],
+    views_count: 1540,
+    content: `# How to Report Content Responsibly on GGs
+
+Maintaining a safe and trustworthy community is a shared responsibility. Here is everything you need to know about reporting suspicious content and tracking moderation resolutions.
+
+---
+
+## When to Submit a Report
+
+You should submit a report if you encounter:
+- **Fake Listings / Scam Deals**: Absurdly cheap prices with advance payment demands.
+- **Counterfeit or Stolen Hardware**: Items with removed serial numbers or flashed BIOS firmware.
+- **Harassment or Threats**: Abusive messages, foul language, or discriminatory conduct in chat.
+- **Prohibited Goods**: Banned online accounts, cheats, malware, or pirated software.
+
+---
+
+## How to Submit a Report
+
+1. **On Listings**: Click the **Report** button on any listing card or product detail page.
+2. **In Chat**: Click the three dots inside the conversation and select **Report Chat**.
+3. **Support Portal**: Submit a detailed ticket via our [Contact Support](/page/contact) page.
+
+---
+
+## Transparent Admin Decisions
+
+Unlike other platforms where reports vanish into a black hole, GGS features full **Admin Decision & Remark Transparency**:
+- Open your **Dashboard → Tickets & Reports**.
+- View the real-time status: *Under Review, Resolved,* or *Rejected*.
+- Read the official **Admin Remark** explaining the decision taken.
+
+---
+
+## Good Faith Participation
+
+Reports must be submitted truthfully. Filing false reports against competing sellers is a violation of our Terms and can lead to account penalties.
+`
+  },
+  {
+    title: 'GGs Community Guidelines: What to Do and What Not to Do',
+    slug: 'community-guidelines-what-to-do-and-not-to-do',
+    excerpt: 'The fundamental standards of conduct for buyers, sellers, and hardware builders on Game Gear Swap.',
+    category: 'Community',
+    cover_image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800',
+    tags: ['Guidelines', 'Rules', 'Safety', 'Community'],
+    views_count: 2120,
+    content: `# GGs Community Guidelines: What to Do and What Not to Do
+
+To preserve a welcoming and secure marketplace for Kerala's gaming community, all members agree to follow these core guidelines.
+
+---
+
+## ✅ What You Should Do
+
+1. **Communicate Clearly & Respectfully**: Answer questions about your gear honestly and respond to buyer inquiries promptly.
+2. **Meet in Safe Public Locations**: Conduct trades in public spots like shopping malls, tech cafes, or local computer shops.
+3. **Test Hardware in Person**: Perform stress tests and verify console online connectivity before paying.
+4. **Verify UPI Transfers on Your Device**: Ensure payments have settled in your own banking app before handing over hardware.
+
+---
+
+## ❌ What You Should Not Do
+
+1. **Never Demand Advance Shipping Fees**: Demanding courier deposits before in-person inspection is strictly forbidden.
+2. **No Counterfeit or Defective Goods**: Do not sell faulty hardware disguised as working condition.
+3. **No Off-Platform Deal Coercion**: Do not pressure users to move transactions off the platform to bypass security safeguards.
+4. **No Spam or Engagement Manipulation**: Do not create duplicate accounts or spam listings.
+`
+  },
+  {
+    title: 'Tips for Better Community Discussions & Safe Deals',
+    slug: 'tips-for-better-community-discussions',
+    excerpt: 'Practical communication etiquette, effective negotiation tips, and hardware inquiry advice for buyers and sellers on GGS.',
+    category: 'Buyer Guides',
+    cover_image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=800',
+    tags: ['Negotiation', 'Communication', 'Deals', 'Tips'],
+    views_count: 1780,
+    content: `# Tips for Better Community Discussions & Safe Deals
+
+Clear, respectful communication leads to faster deals, better prices, and lasting positive reputation in the gaming community. Here are practical tips for negotiating and trading effectively on GGS.
+
+---
+
+## 1. Tips for Buyers
+
+- **Ask Specific Technical Questions**: Inquire about purchase date, original GST invoice, remaining warranty, and past stress-test thermals.
+- **Make Reasonable Offers**: Respect the seller's asking price. Extreme lowballing (e.g., offering ₹10,000 for a ₹40,000 GPU) is unproductive.
+- **Propose Safe Meetup Locations**: Suggest well-known tech spots in your district where power outlets and test benches are accessible.
+
+---
+
+## 2. Tips for Sellers
+
+- **Be Transparent About Flaws**: Mention any minor cosmetic scratches, missing box accessories, or fan noise upfront.
+- **Provide Verification Videos**: Be willing to share a short video clip showing the hardware running benchmark tests.
+- **Update Listing Status**: Once an item is sold, promptly mark it as sold in your dashboard to avoid disappointing other buyers.
+
+---
+
+## 3. Building Community Trust
+
+Leave honest ratings and reviews after completing a deal. Positive feedback builds your credibility as a trusted gamer and seller in Kerala!
+`
+  },
   {
     title: 'How to Sell a Product on GGS: Complete Step-by-Step Guide',
     slug: 'how-to-sell-on-ggs',
@@ -713,8 +978,9 @@ async function seedOrUpdateContent() {
   }
   console.log(`✅ Seeded/Updated ${STATIC_PAGES.length} Static Pages.`);
 
-  // 2. Seed or Update Blog Posts
-  for (const post of BLOG_POSTS) {
+  // 2. Seed or Update Blog Posts (including 15 Safety & Fraud Prevention Articles)
+  const allBlogPosts = [...BLOG_POSTS, ...SAFETY_BLOG_ARTICLES];
+  for (const post of allBlogPosts) {
     await BlogPost.findOneAndUpdate(
       { slug: post.slug },
       {
@@ -736,11 +1002,12 @@ async function seedOrUpdateContent() {
       { upsert: true, new: true }
     );
   }
-  console.log(`✅ Seeded/Updated ${BLOG_POSTS.length} Blog Posts.`);
+  console.log(`✅ Seeded/Updated ${allBlogPosts.length} Blog Posts.`);
 }
 
 module.exports = {
   STATIC_PAGES,
   BLOG_POSTS,
+  SAFETY_BLOG_ARTICLES,
   seedOrUpdateContent
 };

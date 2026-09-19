@@ -21,7 +21,9 @@ import SellerProfile from "./pages/SellerProfile";
 import Messages from "./pages/Messages";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
+import SafetyBlogHub from "./pages/SafetyBlogHub";
 import Contact from "./pages/Contact";
+import HelpGuide from "./pages/HelpGuide";
 
 // Layout
 import Layout from "./components/Layout";
@@ -48,8 +50,12 @@ function App() {
               <Route path="seller/:id" element={<SellerProfile />} />
               <Route path="contact" element={<Contact />} />
               <Route path="page/contact" element={<Contact />} />
+              <Route path="guide" element={<HelpGuide />} />
+              <Route path="help" element={<HelpGuide />} />
               <Route path="page/:slug" element={<StaticPage />} />
               <Route path="blog" element={<Blog />} />
+              <Route path="blog/safety" element={<SafetyBlogHub />} />
+              <Route path="blog/safety/:slug" element={<BlogPost />} />
               <Route path="blog/:slug" element={<BlogPost />} />
               
               {/* Protected Routes */}

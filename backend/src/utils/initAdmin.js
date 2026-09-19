@@ -146,25 +146,9 @@ async function initAdminAndInfrastructure() {
       console.log(`📂 Initialized ${categoriesToInsert.length} marketplace categories.`);
     }
 
-    // 3. Ensure Static Legal Pages (non-destructive insert if empty)
-    const pageCount = await StaticPage.countDocuments();
-    if (pageCount === 0 && STATIC_PAGES && STATIC_PAGES.length > 0) {
-      for (const page of STATIC_PAGES) {
-        await StaticPage.findOneAndUpdate(
-          { slug: page.slug },
-          {
-            $setOnInsert: {
-              id: uuidv4(),
-              title: page.title,
-              content: page.content,
-              updated_at: new Date().toISOString()
-            }
-          },
-          { upsert: true }
-        );
-      }
-      console.log(`📄 Initialized ${STATIC_PAGES.length} static legal pages.`);
-    }
+    // 3. Ensure Static Legal Pages and Blog Posts (including Safety & Fraud Center)
+    const { seedOrUpdateContent } = require('./seedContent');
+    await seedOrUpdateContent();
   } catch (error) {
     console.error('Error in initAdminAndInfrastructure:', error.message);
   }

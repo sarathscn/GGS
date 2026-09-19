@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../lib/api';
 import ProductCard from '../components/ProductCard';
+import FeaturedCarousel from '../components/FeaturedCarousel';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import {
@@ -17,6 +18,7 @@ export default function CategoryListings() {
   const { slug } = useParams();
   const [category, setCategory] = useState(null);
   const [listings, setListings] = useState([]);
+  const [featuredListings, setFeaturedListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [condition, setCondition] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
@@ -28,12 +30,18 @@ export default function CategoryListings() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [categoryRes, listingsRes] = await Promise.all([
+      const [categoryRes, listingsRes, featuredRes] = await Promise.all([
         api.get(`/categories/${slug}`),
         api.get(`/listings?category=${slug}`),
+        api.get(`/listings?category=${slug}&featured=true`).catch(() => ({ data: [] })),
       ]);
       setCategory(categoryRes.data);
       setListings(listingsRes.data);
+
+      const featured = (featuredRes.data && featuredRes.data.length > 0)
+        ? featuredRes.data.filter((l) => l.status === 'active')
+        : (listingsRes.data || []).filter((l) => Boolean(l.featured) && l.status === 'active');
+      setFeaturedListings(featured);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -98,6 +106,12 @@ export default function CategoryListings() {
           </Badge>
         </div>
 
+        {/* Featured Posts Carousel */}
+        <FeaturedCarousel
+          listings={featuredListings}
+          categoryName={category?.name || 'Category'}
+        />
+
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-8 p-4 bg-card rounded-xl border border-border">
           <div className="flex items-center gap-2">
@@ -132,9 +146,9 @@ export default function CategoryListings() {
 
         {/* Listings */}
         {filteredListings.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
             {filteredListings.map((listing, index) => (
-              <div key={listing.id} className={`animate-fadeIn stagger-${index % 4 + 1}`}>
+              <div key={listing.id} className={`animate-fadeIn stagger-${index % 4 + 1} h-full min-w-0`}>
                 <ProductCard listing={listing} />
               </div>
             ))}

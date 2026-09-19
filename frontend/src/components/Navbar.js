@@ -28,6 +28,7 @@ import {
   Shield,
   MessageCircle,
   BookOpen,
+  HelpCircle,
   Tag,
   Store,
   Settings,
@@ -178,13 +179,13 @@ export default function Navbar() {
                   <div className="flex items-center gap-1.5">
                     <p className="text-sm font-bold text-foreground truncate">{user.name}</p>
                     {user.is_seller_verified && (
-                      <Badge variant="outline" className="h-4 px-1.5 text-[9px] font-bold bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shrink-0">
+                      <Badge variant="outline" className="h-4 px-1.5 text-[9px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 shrink-0">
                         Verified ✓
                       </Badge>
                     )}
                   </div>
                   {user.username && (
-                    <p className="text-xs text-violet-400 font-mono truncate mt-0.5">@{user.username}</p>
+                    <p className="text-xs text-violet-700 dark:text-violet-400 font-mono truncate mt-0.5">@{user.username}</p>
                   )}
                 </div>
               </div>
@@ -257,6 +258,16 @@ export default function Navbar() {
               >
                 <BookOpen className="w-4 h-4 text-purple-400" />
                 <span>Blog</span>
+              </Link>
+
+              <Link 
+                to="/guide" 
+                onClick={() => setMobileMenuOpen(false)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${isActive('/guide') || isActive('/help') ? 'bg-violet-500/10 text-violet-500 font-bold' : 'text-foreground hover:bg-muted'}`}
+                data-testid="mobile-guide-link"
+              >
+                <HelpCircle className="w-4 h-4 text-emerald-400" />
+                <span>User Guide</span>
               </Link>
 
               {user && (
@@ -424,7 +435,21 @@ export default function Navbar() {
                 </Button>
               </Link>
 
-              {/* 4. Theme Selection */}
+              {/* 4. User Guide */}
+              <Link to="/guide">
+                <Button 
+                  type="button"
+                  variant={isActive('/guide') || isActive('/help') ? 'secondary' : 'ghost'} 
+                  size="sm" 
+                  className={`font-semibold text-sm transition-all ${isActive('/guide') || isActive('/help') ? 'text-violet-500 font-bold' : 'text-foreground/80 hover:text-foreground'}`}
+                  data-testid="guide-link"
+                >
+                  <HelpCircle className="w-4 h-4 mr-1.5 text-emerald-400" />
+                  Guide
+                </Button>
+              </Link>
+
+              {/* 5. Theme Selection */}
               <Button
                 type="button"
                 variant="ghost"
@@ -438,7 +463,7 @@ export default function Navbar() {
                 {theme === 'dark' ? (
                   <Sun className="w-4 h-4 text-amber-400 transition-transform rotate-0 hover:rotate-45" />
                 ) : (
-                  <Moon className="w-4 h-4 text-violet-500 transition-transform rotate-0 hover:-rotate-12" />
+                  <Moon className="w-4 h-4 text-violet-600 dark:text-violet-400 transition-transform rotate-0 hover:-rotate-12" />
                 )}
               </Button>
 
@@ -509,13 +534,13 @@ export default function Navbar() {
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-bold text-foreground truncate">{user.name}</p>
                           {user.is_seller_verified && (
-                            <Badge variant="outline" className="h-4 px-1.5 text-[9px] font-bold bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shrink-0">
+                            <Badge variant="outline" className="h-4 px-1.5 text-[9px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 shrink-0">
                               Verified ✓
                             </Badge>
                           )}
                         </div>
                         {user.username && (
-                          <p className="text-[11px] text-violet-400 font-mono truncate mt-0.5">
+                          <p className="text-[11px] text-violet-700 dark:text-violet-400 font-mono truncate mt-0.5">
                             @{user.username}
                           </p>
                         )}

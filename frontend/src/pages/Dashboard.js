@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { generateInvoicePdf } from '../lib/invoicePdf';
 import { useAuth } from '../context/AuthContext';
@@ -35,6 +35,7 @@ import {
 import ProductCard from '../components/ProductCard';
 import Avatar from '../components/Avatar';
 import ProfilePictureModal from '../components/ProfilePictureModal';
+import PaginationControls from '../components/ui/PaginationControls';
 import { toast } from 'sonner';
 import {
   User,
@@ -48,12 +49,15 @@ import {
   Loader2,
   Eye,
   CheckCircle,
+  CheckCircle2,
   AlertCircle,
   Camera,
   Phone,
   Shield,
+  ShieldCheck,
   Upload,
   X,
+  XCircle,
   Mail,
   Lock,
   MapPin,
@@ -61,7 +65,15 @@ import {
   RefreshCw,
   Check,
   AlertTriangle,
-  Receipt
+  Receipt,
+  Flag,
+  Clock,
+  HelpCircle,
+  FileText,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  Tag
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -71,6 +83,7 @@ export default function Dashboard() {
   const resolveTab = (tab) => {
     if (!tab) return 'listings';
     if (tab === 'settings' || tab === 'profile') return 'profile';
+    if (tab === 'reports' || tab === 'my-reports') return 'reports';
     return tab;
   };
 
@@ -78,6 +91,11 @@ export default function Dashboard() {
   const [myListings, setMyListings] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [kycStatusData, setKycStatusData] = useState(null);
+  const [allowanceData, setAllowanceData] = useState(null);
+  const [myReports, setMyReports] = useState([]);
+  const [myTickets, setMyTickets] = useState([]);
+  const [requestsSubTab, setRequestsSubTab] = useState('all'); // 'all', 'tickets', 'reports', 'verification'
   const [loading, setLoading] = useState(true);
   const [markingSoldId, setMarkingSoldId] = useState(null);
   const [listingSubTab, setListingSubTab] = useState('active'); // 'active', 'sold', 'all'
@@ -180,14 +198,22 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [listingsRes, wishlistRes, paymentsRes] = await Promise.all([
+      const [listingsRes, wishlistRes, paymentsRes, kycRes, allowanceRes, reportsRes, ticketsRes] = await Promise.allSettled([
         api.get('/my-listings'),
         api.get('/wishlist'),
         api.get('/payments/my'),
+        api.get('/kyc/status'),
+        api.get('/listings/free-posts-allowance'),
+        api.get('/reports/my'),
+        api.get('/support/my')
       ]);
-      setMyListings(listingsRes.data);
-      setWishlist(wishlistRes.data);
-      setPayments(paymentsRes.data);
+      if (listingsRes.status === 'fulfilled') setMyListings(listingsRes.value.data || []);
+      if (wishlistRes.status === 'fulfilled') setWishlist(wishlistRes.value.data || []);
+      if (paymentsRes.status === 'fulfilled') setPayments(paymentsRes.value.data || []);
+      if (kycRes.status === 'fulfilled') setKycStatusData(kycRes.value.data);
+      if (allowanceRes.status === 'fulfilled') setAllowanceData(allowanceRes.value.data);
+      if (reportsRes.status === 'fulfilled') setMyReports(reportsRes.value.data || []);
+      if (ticketsRes.status === 'fulfilled') setMyTickets(ticketsRes.value.data || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -511,15 +537,550 @@ export default function Dashboard() {
     }
   };
 
-  const handleDeleteListing = async (listingId) => {
-    if (!window.confirm('Are you sure you want to delete this listing?')) return;
-    
+// Compact Dashboard Listing Card Component
+function DashboardListingCard({ 
+  listing, 
+  user, 
+  markingSoldId, 
+  onMarkSold, 
+  onDelete, 
+  onRequestExtension, 
+  onRequestFreeEdit 
+}) {
+  // Normalize raw images
+  const images = useMemo(() => {
+    if (!listing) return ['https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=600&auto=format&fit=crop&q=80'];
+    let list = [];
+    if (Array.isArray(listing.images) && listing.images.length > 0) {
+      list = listing.images;
+    } else if (typeof listing.images === 'string') {
+      try {
+        const parsed = JSON.parse(listing.images);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch (e) {
+        list = [listing.images];
+      }
+    } else if (listing.image_url) {
+      list = [listing.image_url];
+    } else if (listing.image) {
+      list = [listing.image];
+    }
+    const clean = list.filter((img) => typeof img === 'string' && img.trim().length > 0);
+    return clean.length > 0
+      ? clean
+      : ['https://images.unsplash.com/photo-1617507171089-6cb9aa5add36?w=600&auto=format&fit=crop&q=80'];
+  }, [listing]);
+
+  const hasMultipleImages = images.length > 1;
+  const extendedSlides = useMemo(() => {
+    if (!hasMultipleImages) return images;
+    return [images[images.length - 1], ...images, images[0]];
+  }, [images, hasMultipleImages]);
+
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(hasMultipleImages ? 1 : 0);
+  const [withTransition, setWithTransition] = useState(true);
+  const isTransitioningRef = useRef(false);
+
+  const activeImageIdx = useMemo(() => {
+    if (!hasMultipleImages) return 0;
+    if (currentSlideIndex === 0) return images.length - 1;
+    if (currentSlideIndex === extendedSlides.length - 1) return 0;
+    return currentSlideIndex - 1;
+  }, [currentSlideIndex, extendedSlides.length, images.length, hasMultipleImages]);
+
+  useEffect(() => {
+    setWithTransition(false);
+    setCurrentSlideIndex(hasMultipleImages ? 1 : 0);
+    isTransitioningRef.current = false;
+    const timer = setTimeout(() => setWithTransition(true), 50);
+    return () => clearTimeout(timer);
+  }, [listing?.id, hasMultipleImages]);
+
+  const handleTransitionEnd = useCallback(() => {
+    isTransitioningRef.current = false;
+    if (!hasMultipleImages) return;
+    if (currentSlideIndex === extendedSlides.length - 1) {
+      setWithTransition(false);
+      setCurrentSlideIndex(1);
+    } else if (currentSlideIndex === 0) {
+      setWithTransition(false);
+      setCurrentSlideIndex(images.length);
+    }
+  }, [currentSlideIndex, extendedSlides.length, hasMultipleImages, images.length]);
+
+  useEffect(() => {
+    if (!withTransition) {
+      const raf = requestAnimationFrame(() => setWithTransition(true));
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [withTransition]);
+
+  const handlePrevImage = (e) => {
+    e.stopPropagation();
+    if (isTransitioningRef.current || !hasMultipleImages) return;
+    isTransitioningRef.current = true;
+    setWithTransition(true);
+    setCurrentSlideIndex(prev => prev - 1);
+  };
+
+  const handleNextImage = (e) => {
+    e.stopPropagation();
+    if (isTransitioningRef.current || !hasMultipleImages) return;
+    isTransitioningRef.current = true;
+    setWithTransition(true);
+    setCurrentSlideIndex(prev => prev + 1);
+  };
+
+  const conditionColors = {
+    BrandNew: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10',
+    LikeNew: 'border-cyan-500/30 text-cyan-700 dark:text-cyan-400 bg-cyan-500/10',
+    Good: 'border-blue-500/30 text-blue-700 dark:text-blue-400 bg-blue-500/10',
+    Fair: 'border-amber-500/30 text-amber-700 dark:text-amber-400 bg-amber-500/10',
+    Refurbished: 'border-purple-500/30 text-purple-700 dark:text-purple-400 bg-purple-500/10',
+  };
+
+  const isSold = listing.status === 'sold' || listing.status === 'completed';
+  const isDeleted = listing.status === 'deleted' || listing.is_deleted;
+  const isExpired = listing.status === 'expired' || listing.is_expired;
+  const isActive = listing.status === 'active' || (!isSold && !isDeleted && !isExpired && listing.status !== 'rejected');
+  const canEdit = user?.role === 'admin' || listing.free_edit_allowed || listing.free_edit_available;
+  const listingUrl = `/listing/${listing.slug || listing.id}`;
+
+  const formatPrice = (price) => {
+    if (listing?.price_type === 'free') return 'Free';
+    if (listing?.price_type === 'negotiable' && (!price || Number(price) === 0)) return 'Negotiable';
+    if (listing?.price_type === 'exchange' && (!price || Number(price) === 0)) return 'Exchange';
+    if (price === 0) return 'Free';
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(Number(price) || 0);
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  return (
+    <div 
+      className="group relative bg-card border border-border rounded-xl overflow-hidden hover:border-violet-500/40 hover:shadow-lg hover:shadow-violet-500/5 transition-all flex flex-col justify-start h-auto min-w-0 max-w-full"
+      data-testid={`dashboard-listing-card-${listing.id}`}
+    >
+      {/* Photo Gallery Area with Status Badge */}
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-zinc-950/70 select-none group/carousel">
+        <div
+          className="flex h-full w-full"
+          style={{
+            transform: `translateX(-${currentSlideIndex * 100}%)`,
+            transition: withTransition ? 'transform 400ms ease-in-out' : 'none',
+            willChange: 'transform',
+          }}
+          onTransitionEnd={handleTransitionEnd}
+        >
+          {extendedSlides.map((imgSrc, idx) => (
+            <div
+              key={idx}
+              className="w-full min-w-full h-full shrink-0 flex items-center justify-center bg-zinc-950/80"
+              style={{ width: '100%', minWidth: '100%', flexShrink: 0 }}
+            >
+              <img
+                src={imgSrc}
+                alt={`${listing.title || 'Product'} photo`}
+                loading={idx <= 1 ? 'eager' : 'lazy'}
+                draggable={false}
+                className="w-full h-full object-cover select-none pointer-events-none group-hover:scale-105 transition-transform duration-500"
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Top-Left: Prominent Status Badge */}
+        <div className="absolute top-2.5 left-2.5 z-20 flex flex-col gap-1">
+          {isDeleted ? (
+            <Badge className="bg-red-500/90 text-white font-bold text-xs px-2.5 py-0.5 shadow-md backdrop-blur-sm">
+              ● Deleted
+            </Badge>
+          ) : isExpired ? (
+            <Badge className="bg-amber-500/90 text-white font-bold text-xs px-2.5 py-0.5 shadow-md backdrop-blur-sm">
+              ● Expired
+            </Badge>
+          ) : isSold ? (
+            <Badge className="bg-zinc-900/90 hover:bg-zinc-900 text-zinc-300 border border-zinc-700 font-bold text-xs px-2.5 py-0.5 shadow-md backdrop-blur-sm">
+              ● Sold
+            </Badge>
+          ) : isActive ? (
+            <Badge className="bg-emerald-600/95 hover:bg-emerald-600 text-white font-bold text-xs px-2.5 py-0.5 shadow-md flex items-center gap-1.5 backdrop-blur-sm border-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              Active
+            </Badge>
+          ) : (
+            <Badge className="bg-amber-500/95 hover:bg-amber-500 text-white font-bold text-xs px-2.5 py-0.5 shadow-md backdrop-blur-sm border-0">
+              {listing.status?.replace('_', ' ').toUpperCase()}
+            </Badge>
+          )}
+        </div>
+
+        {/* Top-Right: Featured Badge (if applicable) */}
+        {listing.featured && (
+          <div className="absolute top-2.5 right-2.5 z-20">
+            <Badge className="bg-amber-500 text-white font-bold text-[10px] px-2 py-0.5 shadow-md">
+              Featured
+            </Badge>
+          </div>
+        )}
+
+        {/* Bottom-Left: Views Count */}
+        {listing.views_count > 0 && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1 text-[10px] text-white bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-full z-10 shadow-sm">
+            <Eye className="w-3 h-3 text-violet-300" />
+            <span>{listing.views_count} views</span>
+          </div>
+        )}
+
+        {/* Multi-image Chevrons & Dots */}
+        {hasMultipleImages && (
+          <>
+            <button
+              type="button"
+              onClick={handlePrevImage}
+              aria-label="Previous image"
+              className="absolute left-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-sm opacity-0 group-hover/carousel:opacity-100 transition-opacity flex items-center justify-center z-10 shadow-sm"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleNextImage}
+              aria-label="Next image"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-sm opacity-0 group-hover/carousel:opacity-100 transition-opacity flex items-center justify-center z-10 shadow-sm"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <div className="absolute bottom-2 inset-x-0 flex justify-center items-center gap-1 z-10">
+              {images.map((_, dotIdx) => (
+                <span
+                  key={dotIdx}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    dotIdx === activeImageIdx ? 'w-3.5 bg-white shadow-sm' : 'w-1.5 bg-white/50'
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Card Content Section */}
+      <div className="p-3 sm:p-3.5 flex flex-col gap-2 min-w-0">
+        {/* Category + Condition Row */}
+        <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md truncate max-w-[65%]" title={listing.category_name}>
+            <Tag className="w-3 h-3 shrink-0 text-cyan-400" />
+            <span className="truncate">{listing.category_name || 'Gaming Gear'}</span>
+          </div>
+          {listing.condition && (
+            <Badge variant="outline" className={`shrink-0 text-[10px] py-0 px-1.5 font-semibold ${conditionColors[listing.condition] || 'border-border text-muted-foreground'}`}>
+              {listing.condition}
+            </Badge>
+          )}
+        </div>
+
+        {/* Title */}
+        <Link to={listingUrl} className="block group-hover:text-violet-400 text-foreground transition-colors min-w-0" title={listing.title}>
+          <h3 className="font-bold text-xs sm:text-sm line-clamp-2 leading-snug break-words overflow-hidden text-foreground">
+            {listing.title}
+          </h3>
+        </Link>
+
+        {/* Price & Location Row */}
+        <div className="flex items-center justify-between gap-2 min-w-0 pt-0.5">
+          <div className="flex items-center gap-1.5 min-w-0 shrink-0 max-w-[65%]">
+            <span
+              className={`font-mono text-base sm:text-lg font-black tracking-tight leading-none ${
+                listing.price_type === 'free' || (listing.price_type === 'negotiable' && (!listing.price || Number(listing.price) === 0))
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-violet-700 dark:text-violet-400'
+              }`}
+              title={formatPrice(listing.price)}
+            >
+              {formatPrice(listing.price)}
+            </span>
+            {listing.price_type === 'exchange' && Number(listing.price) > 0 && (
+              <span className="text-[10px] sm:text-[11px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20 shrink-0 leading-tight">
+                Exchange
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-1 text-[10px] sm:text-[11px] text-muted-foreground min-w-0 shrink truncate max-w-[40%]" title={listing.location}>
+            <MapPin className="w-3 h-3 shrink-0 text-violet-400" />
+            <span className="truncate">{listing.location || 'Kerala'}</span>
+          </div>
+        </div>
+
+        {/* 90-Day Validity & Expiry Information */}
+        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/50 text-muted-foreground">
+          <span>Posted: {formatDate(listing.published_at || listing.created_at)}</span>
+          {listing.expires_at ? (
+            <span className={isExpired ? 'text-red-400 font-medium' : (listing.days_remaining !== undefined && listing.days_remaining <= 14) ? 'text-amber-400 font-medium' : 'text-zinc-400 font-medium'}>
+              {isExpired ? `Expired on ${formatDate(listing.expires_at)}` : `Expires: ${formatDate(listing.expires_at)} (${listing.days_remaining !== undefined ? `${listing.days_remaining}d left` : '90d'})`}
+            </span>
+          ) : (
+            <span className="text-zinc-500">90-Day Validity</span>
+          )}
+        </div>
+
+        {/* Edit Allowance & Expiry Extension Row */}
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] pt-1 border-t border-border/40 text-muted-foreground">
+          {/* Extension Status / Action */}
+          {listing.extension_count >= 1 ? (
+            <span className="text-purple-400 font-medium text-[10px] bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
+              ✓ 30d Extended
+            </span>
+          ) : (listing.extension_eligible || ((listing.days_remaining <= 30 || isExpired) && (listing.extension_count || 0) < 1 && !isDeleted)) ? (
+            <button
+              type="button"
+              onClick={() => onRequestExtension && onRequestExtension(listing)}
+              className="text-violet-400 hover:text-violet-300 font-semibold text-[10px] bg-violet-500/10 hover:bg-violet-500/20 px-1.5 py-0.5 rounded border border-violet-500/30 transition-colors"
+              title="Request 30-Day Validity Extension via Support"
+            >
+              + 30d Extension
+            </button>
+          ) : null}
+
+          {/* Free Edit Allowance / Action */}
+          {user?.role === 'admin' ? (
+            <span className="text-violet-400 font-medium">Admin Edit</span>
+          ) : listing.free_edit_allowed ? (
+            <span className="text-emerald-400 font-medium text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+              ● 1 Free Edit Available
+            </span>
+          ) : listing.free_edit_available ? (
+            <span className="text-emerald-400 font-medium text-[10px]">
+              ● Free Edit ({listing.free_edit_hours_left || 24}h)
+            </span>
+          ) : listing.free_edit_history && listing.free_edit_history.length > 0 ? (
+            <span className="text-zinc-500 text-[10px]">Edit Used</span>
+          ) : !isSold && !isDeleted ? (
+            <button
+              type="button"
+              onClick={() => onRequestFreeEdit && onRequestFreeEdit(listing)}
+              className="text-cyan-400 hover:text-cyan-300 font-semibold text-[10px] bg-cyan-500/10 hover:bg-cyan-500/20 px-1.5 py-0.5 rounded border border-cyan-500/30 transition-colors"
+              title="Request 1-time free edit allowance via Support Ticket"
+            >
+              Request Free Edit
+            </button>
+          ) : (
+            <span className="text-zinc-500 text-[10px]">Standard Edit</span>
+          )}
+        </div>
+      </div>
+
+      {/* Unified Management Action Row (Bottom of Card) */}
+      <div className="p-2.5 bg-muted/20 border-t border-border/80 flex items-center justify-between gap-1.5 sm:gap-2">
+        {/* 1. Mark Sold Action */}
+        {!isSold ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onMarkSold(listing.id)}
+            disabled={markingSoldId === listing.id}
+            className="flex-1 h-8 px-2 text-xs font-semibold border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 transition-colors"
+            title="Mark this listing as Sold"
+            data-testid={`mark-sold-${listing.id}`}
+          >
+            {markingSoldId === listing.id ? (
+              <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-400" />
+            ) : (
+              <CheckCircle className="w-3.5 h-3.5 mr-1" />
+            )}
+            <span>Mark Sold</span>
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled
+            className="flex-1 h-8 px-2 text-xs font-semibold bg-muted/40 text-muted-foreground border-border/50 cursor-not-allowed"
+          >
+            <CheckCircle className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
+            <span>Sold</span>
+          </Button>
+        )}
+
+        {/* 2. Edit Action */}
+        {!isSold && canEdit ? (
+          <Link to={`/edit/${listing.id}`} className="flex-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full h-8 px-2 text-xs font-semibold border-violet-500/30 text-violet-400 hover:bg-violet-500/10 hover:text-violet-300 transition-colors"
+              title={user?.role === 'admin' ? 'Admin Edit' : 'Edit Listing (1 Free Edit Available)'}
+              data-testid={`edit-listing-${listing.id}`}
+            >
+              <Edit className="w-3.5 h-3.5 mr-1" />
+              <span>Edit</span>
+            </Button>
+          </Link>
+        ) : !isSold ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onRequestFreeEdit && onRequestFreeEdit(listing)}
+            className="flex-1 h-8 px-2 text-xs font-semibold border-border/50 text-muted-foreground hover:text-foreground"
+            title="Request admin allowance for free edit"
+            data-testid={`edit-listing-${listing.id}`}
+          >
+            <Edit className="w-3.5 h-3.5 mr-1" />
+            <span>Edit</span>
+          </Button>
+        ) : (
+          <Link to={listingUrl} className="flex-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full h-8 px-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              <Eye className="w-3.5 h-3.5 mr-1" />
+              <span>View</span>
+            </Button>
+          </Link>
+        )}
+
+        {/* 3. Delete Action */}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onDelete(listing)}
+          className="flex-1 h-8 px-2 text-xs font-semibold border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+          title="Delete listing"
+          data-testid={`delete-listing-${listing.id}`}
+        >
+          <Trash2 className="w-3.5 h-3.5 mr-1" />
+          <span>Delete</span>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Main Dashboard Component
+  const [listingToDelete, setListingToDelete] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Pagination states (20 items per page)
+  const [listingPage, setListingPage] = useState(1);
+  const [wishlistPage, setWishlistPage] = useState(1);
+  const [paymentsPage, setPaymentsPage] = useState(1);
+  const [ticketsPage, setTicketsPage] = useState(1);
+  const [reportsPage, setReportsPage] = useState(1);
+
+  // Extension request modal state
+  const [extensionListing, setExtensionListing] = useState(null);
+  const [isExtensionModalOpen, setIsExtensionModalOpen] = useState(false);
+  const [extensionReason, setExtensionReason] = useState('');
+  const [extensionLoading, setExtensionLoading] = useState(false);
+
+  // Free edit request modal state
+  const [freeEditListing, setFreeEditListing] = useState(null);
+  const [isFreeEditModalOpen, setIsFreeEditModalOpen] = useState(false);
+  const [freeEditReason, setFreeEditReason] = useState('');
+  const [freeEditLoading, setFreeEditLoading] = useState(false);
+
+  const handleOpenExtensionModal = (listing) => {
+    setExtensionListing(listing);
+    setExtensionReason('');
+    setIsExtensionModalOpen(true);
+  };
+
+  const handleConfirmExtensionRequest = async () => {
+    if (!extensionListing) return;
+    setExtensionLoading(true);
     try {
-      await api.delete(`/listings/${listingId}`);
-      setMyListings(prev => prev.filter(l => l.id !== listingId));
-      toast.success('Listing deleted successfully');
+      await api.post('/support', {
+        category: 'listing_support',
+        request_type: 'expiry_extension',
+        listing_id: extensionListing.id,
+        listing_title: extensionListing.title,
+        current_expires_at: extensionListing.expires_at,
+        subject: `30-Day Extension Request: ${extensionListing.title}`,
+        description: extensionReason.trim() || 'Requesting 30-day listing validity extension'
+      });
+      toast.success('30-Day Extension Request submitted! Admin will review shortly.');
+      setIsExtensionModalOpen(false);
+      setExtensionListing(null);
+      fetchData();
     } catch (error) {
-      toast.error('Failed to delete listing');
+      toast.error(error.response?.data?.detail || 'Failed to submit extension request');
+    } finally {
+      setExtensionLoading(false);
+    }
+  };
+
+  const handleOpenFreeEditModal = (listing) => {
+    setFreeEditListing(listing);
+    setFreeEditReason('');
+    setIsFreeEditModalOpen(true);
+  };
+
+  const handleConfirmFreeEditRequest = async () => {
+    if (!freeEditListing) return;
+    setFreeEditLoading(true);
+    try {
+      await api.post('/support', {
+        category: 'listing_support',
+        request_type: 'free_edit',
+        listing_id: freeEditListing.id,
+        listing_title: freeEditListing.title,
+        subject: `One-Time Free Edit Request: ${freeEditListing.title}`,
+        description: freeEditReason.trim() || 'Requesting admin allowance for 1 free edit'
+      });
+      toast.success('Free Edit Request submitted! Admin will review shortly.');
+      setIsFreeEditModalOpen(false);
+      setFreeEditListing(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to submit free edit request');
+    } finally {
+      setFreeEditLoading(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (listing) => {
+    setListingToDelete(listing);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!listingToDelete) return;
+    try {
+      await api.delete(`/listings/${listingToDelete.id}`);
+      setMyListings(prev => prev.filter(l => l.id !== listingToDelete.id));
+      toast.success('Listing deleted successfully');
+      setIsDeleteModalOpen(false);
+      setListingToDelete(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete listing');
+    }
+  };
+
+  const handleDeleteListing = (listingId) => {
+    const target = myListings.find(l => l.id === listingId);
+    if (target) {
+      handleOpenDeleteModal(target);
+    } else {
+      handleOpenDeleteModal({ id: listingId, title: 'this listing' });
     }
   };
 
@@ -558,17 +1119,8 @@ export default function Dashboard() {
     });
   };
 
-  const statusColors = {
-    active: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-    pending: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-    pending_payment: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-    rejected: 'bg-red-500/10 text-red-500 border-red-500/20',
-    sold: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/20',
-    completed: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-  };
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" data-testid="dashboard-page">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[calc(100vh-140px)] pb-24" data-testid="dashboard-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
@@ -585,22 +1137,26 @@ export default function Dashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <div className="w-full overflow-x-auto no-scrollbar pb-1">
-          <TabsList className="bg-card border border-border p-1 inline-flex w-auto min-w-full sm:min-w-0 flex-nowrap gap-1">
-            <TabsTrigger value="listings" className="gap-2 shrink-0 px-3.5 py-2 text-xs sm:text-sm font-medium" data-testid="tab-listings">
-              <Package className="w-4 h-4 shrink-0" />
+        <div className="w-full max-w-full">
+          <TabsList className="bg-card border border-border p-1.5 flex flex-wrap lg:inline-flex w-full lg:w-auto gap-1.5 sm:gap-2 rounded-xl shadow-sm h-auto justify-start items-center" data-testid="dashboard-action-tabs">
+            <TabsTrigger value="listings" className="gap-2 shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-2.5 min-h-[40px] text-xs sm:text-sm font-medium rounded-lg whitespace-nowrap focus-visible:ring-2 focus-visible:ring-violet-500" data-testid="tab-listings">
+              <Package className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
               <span>My Listings ({myListings.length})</span>
             </TabsTrigger>
-            <TabsTrigger value="wishlist" className="gap-2 shrink-0 px-3.5 py-2 text-xs sm:text-sm font-medium" data-testid="tab-wishlist">
-              <Heart className="w-4 h-4 shrink-0" />
+            <TabsTrigger value="wishlist" className="gap-2 shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-2.5 min-h-[40px] text-xs sm:text-sm font-medium rounded-lg whitespace-nowrap focus-visible:ring-2 focus-visible:ring-violet-500" data-testid="tab-wishlist">
+              <Heart className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
               <span>Wishlist ({wishlist.length})</span>
             </TabsTrigger>
-            <TabsTrigger value="payments" className="gap-2 shrink-0 px-3.5 py-2 text-xs sm:text-sm font-medium" data-testid="tab-payments">
-              <CreditCard className="w-4 h-4 shrink-0" />
+            <TabsTrigger value="payments" className="gap-2 shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-2.5 min-h-[40px] text-xs sm:text-sm font-medium rounded-lg whitespace-nowrap focus-visible:ring-2 focus-visible:ring-violet-500" data-testid="tab-payments">
+              <CreditCard className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
               <span>Payments</span>
             </TabsTrigger>
-            <TabsTrigger value="profile" className="gap-2 shrink-0 px-3.5 py-2 text-xs sm:text-sm font-medium" data-testid="tab-profile">
-              <Settings className="w-4 h-4 shrink-0" />
+            <TabsTrigger value="reports" className="gap-2 shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-2.5 min-h-[40px] text-xs sm:text-sm font-medium rounded-lg whitespace-nowrap focus-visible:ring-2 focus-visible:ring-violet-500" data-testid="tab-reports">
+              <Flag className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
+              <span>Activity & Reports ({myReports.length + myTickets.length + (kycStatusData?.status && kycStatusData.status !== 'not_applied' ? 1 : 0)})</span>
+            </TabsTrigger>
+            <TabsTrigger value="profile" className="gap-2 shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-2.5 min-h-[40px] text-xs sm:text-sm font-medium rounded-lg whitespace-nowrap focus-visible:ring-2 focus-visible:ring-violet-500" data-testid="tab-profile">
+              <Settings className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
               <span>Profile Settings</span>
             </TabsTrigger>
           </TabsList>
@@ -608,19 +1164,56 @@ export default function Dashboard() {
 
         {/* Listings Tab */}
         <TabsContent value="listings">
+          {/* Verified Seller Monthly Free Posts Banner */}
+          {allowanceData?.is_verified && (
+            <div className="mb-6 bg-gradient-to-r from-violet-500/10 via-purple-500/5 to-card dark:from-violet-950/40 dark:via-purple-900/20 dark:to-card border border-violet-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-testid="verified-allowance-banner">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-sm text-foreground">Verified Seller Allowance</h4>
+                    <Badge className="bg-emerald-500/15 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px] font-semibold">
+                      3 Free / Month
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Monthly usage: <strong className="text-foreground font-semibold">{allowanceData.used} / {allowanceData.limit} used</strong> ({allowanceData.remaining} remaining this month)
+                  </p>
+                </div>
+              </div>
+              <Link to="/post">
+                <Button size="sm" className="bg-violet-600 hover:bg-violet-700 font-bold shrink-0 text-xs">
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  Post Ad ({allowanceData.remaining > 0 ? `${allowanceData.remaining} free left` : 'Standard fee'})
+                </Button>
+              </Link>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
             </div>
           ) : myListings.length > 0 ? (
             <div className="space-y-6">
+              {/* 90-Day Validity & Expiry Platform Policy Notice */}
+              <div className="p-3.5 bg-violet-500/10 dark:bg-violet-950/30 border border-violet-500/30 dark:border-violet-500/25 rounded-xl text-xs text-zinc-700 dark:text-zinc-300 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-bold text-violet-950 dark:text-white">Listing Validity & Policy: </span>
+                  All ads remain active for a standard 90-day validity period. You can request a single 30-day extension or a free edit allowance via support ticket. In accordance with platform policy, strictly no refunds are issued after the 90-day validity period expires.
+                </div>
+              </div>
+
               {/* Sub-tabs for Active vs Sold Listings */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
                     variant={listingSubTab === 'active' ? 'default' : 'outline'}
-                    onClick={() => setListingSubTab('active')}
+                    onClick={() => { setListingSubTab('active'); setListingPage(1); }}
                     className={listingSubTab === 'active' ? 'bg-violet-600 hover:bg-violet-700' : ''}
                     data-testid="subtab-active-listings"
                   >
@@ -629,7 +1222,7 @@ export default function Dashboard() {
                   <Button
                     size="sm"
                     variant={listingSubTab === 'sold' ? 'default' : 'outline'}
-                    onClick={() => setListingSubTab('sold')}
+                    onClick={() => { setListingSubTab('sold'); setListingPage(1); }}
                     className={listingSubTab === 'sold' ? 'bg-violet-600 hover:bg-violet-700' : ''}
                     data-testid="subtab-sold-listings"
                   >
@@ -638,7 +1231,7 @@ export default function Dashboard() {
                   <Button
                     size="sm"
                     variant={listingSubTab === 'all' ? 'default' : 'outline'}
-                    onClick={() => setListingSubTab('all')}
+                    onClick={() => { setListingSubTab('all'); setListingPage(1); }}
                     className={listingSubTab === 'all' ? 'bg-violet-600 hover:bg-violet-700' : ''}
                     data-testid="subtab-all-listings"
                   >
@@ -648,112 +1241,48 @@ export default function Dashboard() {
               </div>
 
               {/* Listings Grid */}
-              {myListings.filter(l => {
-                if (listingSubTab === 'active') return l.status !== 'sold' && l.status !== 'completed' && l.status !== 'deleted';
-                if (listingSubTab === 'sold') return l.status === 'sold' || l.status === 'completed';
-                return true;
-              }).length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {myListings
-                    .filter(l => {
-                      if (listingSubTab === 'active') return l.status !== 'sold' && l.status !== 'completed' && l.status !== 'deleted';
-                      if (listingSubTab === 'sold') return l.status === 'sold' || l.status === 'completed';
-                      return true;
-                    })
-                    .map((listing) => (
-                      <div key={listing.id} className="relative group">
-                        <ProductCard product={listing} />
-                        <div className="mt-2 flex flex-col gap-1.5 p-2 bg-card border border-border rounded-lg">
-                          <div className="flex items-center justify-between gap-2">
-                            <Badge className={statusColors[listing.status] || 'bg-zinc-500/10 text-zinc-500'}>
-                              {listing.status?.replace('_', ' ').toUpperCase()}
-                            </Badge>
-                            <div className="flex items-center gap-1">
-                              {listing.status !== 'sold' && listing.status !== 'completed' && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleMarkAsSold(listing.id)}
-                                  disabled={markingSoldId === listing.id}
-                                  className="h-8 px-2 text-xs hover:bg-emerald-500/10 hover:text-emerald-500"
-                                  title="Mark as Sold"
-                                  data-testid={`mark-sold-${listing.id}`}
-                                >
-                                  {markingSoldId === listing.id ? (
-                                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin text-emerald-500" />
-                                  ) : (
-                                    <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                                  )}
-                                  {markingSoldId === listing.id ? 'Saving...' : 'Mark Sold'}
-                                </Button>
-                              )}
-                              {listing.status !== 'sold' && listing.status !== 'completed' && (
-                                user?.role === 'admin' || listing.free_edit_available ? (
-                                  <Link to={`/edit/${listing.id}`}>
-                                    <Button 
-                                      size="icon" 
-                                      variant="ghost" 
-                                      className="h-8 w-8 text-violet-500 hover:text-violet-400 hover:bg-violet-500/10" 
-                                      title={user?.role === 'admin' ? 'Admin Edit' : `1 Free Edit Available (${listing.free_edit_hours_left || 24}h left)`}
-                                      data-testid={`edit-listing-${listing.id}`}
-                                    >
-                                      <Edit className="w-3.5 h-3.5" />
-                                    </Button>
-                                  </Link>
-                                ) : (
-                                  <Button 
-                                    size="icon" 
-                                    variant="ghost" 
-                                    disabled 
-                                    className="h-8 w-8 opacity-40 cursor-not-allowed" 
-                                    title={listing.free_edit_status === 'used' ? 'Free edit already used' : 'Free edit expired (24h after posting)'}
-                                    data-testid={`edit-listing-${listing.id}`}
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </Button>
-                                )
-                              )}
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteListing(listing.id)}
-                                data-testid={`delete-listing-${listing.id}`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                          
-                          {/* Free Edit Status Indicator for Non-sold listings */}
-                          {listing.status !== 'sold' && listing.status !== 'completed' && (
-                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/40">
-                              <span className="text-muted-foreground">Edit Rule:</span>
-                              {user?.role === 'admin' ? (
-                                <span className="text-violet-400 font-medium">Admin Unlimited</span>
-                              ) : listing.free_edit_available ? (
-                                <span className="text-emerald-500 font-medium flex items-center gap-1">
-                                  ● 1 Free Edit ({listing.free_edit_hours_left || 24}h left)
-                                </span>
-                              ) : listing.free_edit_status === 'used' ? (
-                                <span className="text-muted-foreground">Free Edit Used</span>
-                              ) : (
-                                <span className="text-amber-500/80">Free Edit Expired</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 bg-card rounded-xl border border-border">
-                  <Package className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="text-muted-foreground font-medium">
-                    {listingSubTab === 'sold' ? 'No sold listings yet.' : 'No active listings found in this tab.'}
-                  </p>
-                </div>
-              )}
+              {(() => {
+                const filtered = myListings.filter(l => {
+                  if (listingSubTab === 'active') return l.status !== 'sold' && l.status !== 'completed' && l.status !== 'deleted';
+                  if (listingSubTab === 'sold') return l.status === 'sold' || l.status === 'completed';
+                  return true;
+                });
+                const totalPages = Math.ceil(filtered.length / 20) || 1;
+                const paginated = filtered.slice((listingPage - 1) * 20, listingPage * 20);
+
+                return filtered.length > 0 ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                      {paginated.map((listing) => (
+                        <DashboardListingCard
+                          key={listing.id}
+                          listing={listing}
+                          user={user}
+                          markingSoldId={markingSoldId}
+                          onMarkSold={handleMarkAsSold}
+                          onDelete={handleOpenDeleteModal}
+                          onRequestExtension={handleOpenExtensionModal}
+                          onRequestFreeEdit={handleOpenFreeEditModal}
+                        />
+                      ))}
+                    </div>
+                    <PaginationControls
+                      currentPage={listingPage}
+                      totalPages={totalPages}
+                      totalRecords={filtered.length}
+                      pageSize={20}
+                      onPageChange={setListingPage}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-center py-12 bg-card rounded-xl border border-border">
+                    <Package className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground font-medium">
+                      {listingSubTab === 'sold' ? 'No sold listings yet.' : 'No active listings found in this tab.'}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="text-center py-16 bg-card rounded-xl border border-border">
@@ -777,10 +1306,19 @@ export default function Dashboard() {
               <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
             </div>
           ) : wishlist.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {wishlist.map((item) => (
-                <ProductCard key={item.id} product={item} />
-              ))}
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {wishlist.slice((wishlistPage - 1) * 20, wishlistPage * 20).map((item) => (
+                  <ProductCard key={item.id} product={item} />
+                ))}
+              </div>
+              <PaginationControls
+                currentPage={wishlistPage}
+                totalPages={Math.ceil(wishlist.length / 20)}
+                totalRecords={wishlist.length}
+                pageSize={20}
+                onPageChange={setWishlistPage}
+              />
             </div>
           ) : (
             <div className="text-center py-16 bg-card rounded-xl border border-border">
@@ -798,81 +1336,600 @@ export default function Dashboard() {
 
         {/* Payments & Invoices Tab */}
         <TabsContent value="payments">
+          {/* No Refund Policy Notice */}
+          <div className="p-3.5 bg-violet-500/10 dark:bg-violet-950/30 border border-violet-500/30 dark:border-violet-500/25 rounded-xl text-xs text-zinc-700 dark:text-zinc-300 flex items-start gap-2.5 mb-6">
+            <AlertCircle className="w-4 h-4 text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-bold text-violet-950 dark:text-white">Payment & Refund Policy: </span>
+              All listing service fees cover the initial 90-day advertising and platform hosting service. GST tax invoices are generated automatically. In line with our platform terms, fees are non-refundable after the 90-day validity period has lapsed.
+            </div>
+          </div>
+
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
             </div>
           ) : payments.length > 0 ? (
-            <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
-                    <tr>
-                      <th className="text-left py-3 px-4 font-semibold">Invoice / Txn ID</th>
-                      <th className="text-left py-3 px-4 font-semibold">Description</th>
-                      <th className="text-left py-3 px-4 font-semibold">Amount (INR)</th>
-                      <th className="text-left py-3 px-4 font-semibold">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold">Date</th>
-                      <th className="text-right py-3 px-4 font-semibold">Receipt / Tax Invoice</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {payments.map((payment) => (
-                      <tr key={payment.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-4">
-                          <p className="font-mono font-bold text-xs text-violet-400">
-                            {payment.invoice_number || `GGS-INV-${payment.id?.slice(0, 8).toUpperCase()}`}
-                          </p>
-                          <p className="font-mono text-[11px] text-muted-foreground">
-                            {payment.transaction_id || payment.id?.slice(0, 12)}
-                          </p>
-                        </td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-xs text-foreground">{payment.listing_title || payment.ad_title || 'Listing Service Fee'}</p>
-                          <p className="text-[11px] text-muted-foreground">{payment.payment_method ? payment.payment_method.toUpperCase() : 'Online UPI'}</p>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-emerald-500">₹{Number(payment.amount).toFixed(2)}</span>
-                          <span className="block text-[10px] text-muted-foreground">(Base ₹{payment.base_amount || '8.47'} + 18% GST)</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <Badge className={
-                            payment.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
-                            'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                          }>
-                            {payment.status?.toUpperCase()}
-                          </Badge>
-                        </td>
-                        <td className="py-3 px-4 text-muted-foreground text-xs whitespace-nowrap">
-                          {formatDate(payment.created_at)}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {payment.status === 'completed' ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs font-semibold"
-                              onClick={() => downloadInvoice(payment.id)}
-                              data-testid={`download-invoice-${payment.id}`}
-                            >
-                              <Receipt className="w-3.5 h-3.5 mr-1 text-violet-500" />
-                              Download Invoice
-                            </Button>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground italic">N/A (Pending)</span>
-                          )}
-                        </td>
+            <div className="space-y-4">
+              <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground">
+                      <tr>
+                        <th className="text-left py-3 px-4 font-semibold">Invoice / Txn ID</th>
+                        <th className="text-left py-3 px-4 font-semibold">Description</th>
+                        <th className="text-left py-3 px-4 font-semibold">Amount (INR)</th>
+                        <th className="text-left py-3 px-4 font-semibold">Status</th>
+                        <th className="text-left py-3 px-4 font-semibold">Date</th>
+                        <th className="text-right py-3 px-4 font-semibold">Receipt / Tax Invoice</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {payments.slice((paymentsPage - 1) * 20, paymentsPage * 20).map((payment) => (
+                        <tr key={payment.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="py-3 px-4">
+                            <p className="font-mono font-bold text-xs text-violet-400">
+                              {payment.invoice_number || `GGS-INV-${payment.id?.slice(0, 8).toUpperCase()}`}
+                            </p>
+                            <p className="font-mono text-[11px] text-muted-foreground">
+                              {payment.transaction_id || payment.id?.slice(0, 12)}
+                            </p>
+                          </td>
+                          <td className="py-3 px-4">
+                            <p className="font-medium text-xs text-foreground">{payment.listing_title || payment.ad_title || 'Listing Service Fee'}</p>
+                            <p className="text-[11px] text-muted-foreground">{payment.payment_method ? payment.payment_method.toUpperCase() : 'Online UPI'}</p>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="font-mono font-bold text-emerald-500">₹{Number(payment.amount).toFixed(2)}</span>
+                            <span className="block text-[10px] text-muted-foreground">(Base ₹{payment.base_amount || '8.47'} + 18% GST)</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge className={
+                              payment.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' :
+                              'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                            }>
+                              {payment.status?.toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4 text-muted-foreground text-xs whitespace-nowrap">
+                            {formatDate(payment.created_at)}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {payment.status === 'completed' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs font-semibold"
+                                onClick={() => downloadInvoice(payment.id)}
+                                data-testid={`download-invoice-${payment.id}`}
+                              >
+                                <Receipt className="w-3.5 h-3.5 mr-1 text-violet-500" />
+                                Download Invoice
+                              </Button>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground italic">N/A (Pending)</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+              <PaginationControls
+                currentPage={paymentsPage}
+                totalPages={Math.ceil(payments.length / 20)}
+                totalRecords={payments.length}
+                pageSize={20}
+                onPageChange={setPaymentsPage}
+              />
             </div>
           ) : (
             <div className="text-center py-16 bg-card rounded-xl border border-border">
               <CreditCard className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
               <h3 className="font-bold text-lg mb-2">No payment history</h3>
               <p className="text-muted-foreground text-sm">Payments and tax invoices will appear here after you post listings</p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* My Requests & Reports (Activity & Requests Hub) */}
+        <TabsContent value="reports" className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+            <div>
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <Flag className="w-5 h-5 text-violet-500" />
+                <span>Activity & Requests Hub</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                Track status, administrative decisions, and official remarks for all your submitted inquiries, tickets, verification, and ad reports.
+              </p>
+            </div>
+
+            <Link to="/contact">
+              <Button size="sm" className="bg-violet-600 hover:bg-violet-700 font-bold text-xs shrink-0">
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Submit Support Ticket
+              </Button>
+            </Link>
+          </div>
+
+          {/* Sub-navigation Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={requestsSubTab === 'all' ? 'default' : 'outline'}
+              onClick={() => setRequestsSubTab('all')}
+              className={requestsSubTab === 'all' ? 'bg-violet-600 hover:bg-violet-700 font-bold text-xs' : 'text-xs'}
+              data-testid="subtab-all-requests"
+            >
+              All Requests ({myTickets.length + myReports.length + (kycStatusData?.status && kycStatusData.status !== 'not_applied' ? 1 : 0)})
+            </Button>
+            <Button
+              size="sm"
+              variant={requestsSubTab === 'tickets' ? 'default' : 'outline'}
+              onClick={() => setRequestsSubTab('tickets')}
+              className={requestsSubTab === 'tickets' ? 'bg-violet-600 hover:bg-violet-700 font-bold text-xs' : 'text-xs'}
+              data-testid="subtab-tickets-requests"
+            >
+              Support Tickets ({myTickets.length})
+            </Button>
+            <Button
+              size="sm"
+              variant={requestsSubTab === 'reports' ? 'default' : 'outline'}
+              onClick={() => setRequestsSubTab('reports')}
+              className={requestsSubTab === 'reports' ? 'bg-violet-600 hover:bg-violet-700 font-bold text-xs' : 'text-xs'}
+              data-testid="subtab-reports-requests"
+            >
+              Ad Reports ({myReports.length})
+            </Button>
+            <Button
+              size="sm"
+              variant={requestsSubTab === 'verification' ? 'default' : 'outline'}
+              onClick={() => setRequestsSubTab('verification')}
+              className={requestsSubTab === 'verification' ? 'bg-violet-600 hover:bg-violet-700 font-bold text-xs' : 'text-xs'}
+              data-testid="subtab-kyc-requests"
+            >
+              Seller Verification
+            </Button>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+            </div>
+          ) : (
+            <div className="space-y-6">
+              
+              {/* 1. SELLER VERIFICATION STATUS CARD (Shown when subtab is 'all' or 'verification') */}
+              {(requestsSubTab === 'all' || requestsSubTab === 'verification') && (
+                <div className="bg-card border border-border rounded-xl p-4 sm:p-6 space-y-4 shadow-sm" data-testid="seller-verification-status-card">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 pb-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        kycStatusData?.status === 'verified' || user?.is_seller_verified
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : kycStatusData?.status === 'pending' || user?.verification_status === 'pending'
+                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          : kycStatusData?.status === 'rejected' || user?.verification_status === 'rejected'
+                          ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                          : 'bg-violet-600/10 text-violet-500 border border-violet-500/20'
+                      }`}>
+                        <Shield className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-base text-foreground">Seller Trust Verification</h3>
+                        <p className="text-xs text-muted-foreground">Government ID verification for trusted seller badges & monthly free posts</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {kycStatusData?.status === 'verified' || user?.is_seller_verified ? (
+                        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs font-semibold px-2.5 py-0.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                          VERIFIED SELLER
+                        </Badge>
+                      ) : kycStatusData?.status === 'pending' || user?.verification_status === 'pending' ? (
+                        <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-xs font-semibold px-2.5 py-0.5">
+                          <Clock className="w-3.5 h-3.5 mr-1 animate-pulse" />
+                          PENDING REVIEW
+                        </Badge>
+                      ) : kycStatusData?.status === 'rejected' || user?.verification_status === 'rejected' ? (
+                        <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs font-semibold px-2.5 py-0.5">
+                          <XCircle className="w-3.5 h-3.5 mr-1" />
+                          REJECTED
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs text-muted-foreground">
+                          NOT APPLIED
+                        </Badge>
+                      )}
+
+                      {kycStatusData?.decision && (
+                        <Badge className="bg-violet-500/10 text-violet-300 border-violet-500/20 text-xs font-semibold">
+                          Decision: {kycStatusData.decision}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Submission and Review Timestamps */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    <div className="p-2.5 bg-muted/30 border border-border/50 rounded-lg">
+                      <span className="text-muted-foreground block text-[11px]">Submitted Date:</span>
+                      <span className="font-semibold text-foreground">
+                        {kycStatusData?.submitted_at ? formatDate(kycStatusData.submitted_at) : 'Not submitted yet'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-muted/30 border border-border/50 rounded-lg">
+                      <span className="text-muted-foreground block text-[11px]">Last Updated / Reviewed:</span>
+                      <span className="font-semibold text-foreground">
+                        {kycStatusData?.reviewed_at ? formatDate(kycStatusData.reviewed_at) : (kycStatusData?.submitted_at ? 'Awaiting review' : 'N/A')}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-muted/30 border border-border/50 rounded-lg">
+                      <span className="text-muted-foreground block text-[11px]">Document Type:</span>
+                      <span className="font-semibold capitalize text-foreground">
+                        {kycStatusData?.kyc?.document_type ? kycStatusData.kyc.document_type.replace('_', ' ') : 'N/A'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-muted/30 border border-border/50 rounded-lg">
+                      <span className="text-muted-foreground block text-[11px]">Masked ID Reference:</span>
+                      <span className="font-mono font-bold text-foreground">
+                        {kycStatusData?.kyc?.document_number ? `****${kycStatusData.kyc.document_number}` : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* User-Facing Admin Remark Callout */}
+                  {kycStatusData?.admin_remark ? (
+                    <div className="p-3.5 bg-violet-500/10 border border-violet-500/25 rounded-xl space-y-1.5" data-testid="verification-admin-remark-box">
+                      <div className="flex items-center justify-between text-xs font-bold text-violet-300">
+                        <div className="flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-violet-400" />
+                          <span>Admin Review Remark / Reason</span>
+                        </div>
+                        {kycStatusData.reviewed_at && (
+                          <span className="text-[10px] text-muted-foreground font-normal">
+                            Updated: {formatDate(kycStatusData.reviewed_at)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs sm:text-sm text-foreground font-medium pl-5 leading-relaxed" data-testid="verification-admin-remark">
+                        "{kycStatusData.admin_remark}"
+                      </p>
+                    </div>
+                  ) : kycStatusData?.status === 'pending' ? (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-400/90 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Your documents are in the moderation queue. Reviews typically complete within 24 to 48 hours.</span>
+                    </div>
+                  ) : null}
+
+                  {/* Actions Bar */}
+                  <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Verified sellers get priority in search, a verified badge on all ads, and 3 free monthly post allowances.
+                    </p>
+
+                    {kycStatusData?.status === 'rejected' ? (
+                      <Button
+                        size="sm"
+                        className="bg-violet-600 hover:bg-violet-700 font-bold text-xs"
+                        onClick={() => setShowVerifyModal(true)}
+                        data-testid="reapply-kyc-btn"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                        Re-apply for Verification
+                      </Button>
+                    ) : kycStatusData?.status === 'not_applied' || (!kycStatusData?.status && !user?.is_seller_verified) ? (
+                      <Button
+                        size="sm"
+                        className="bg-violet-600 hover:bg-violet-700 font-bold text-xs"
+                        onClick={() => setShowVerifyModal(true)}
+                        data-testid="apply-kyc-btn"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                        Apply for Verification
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. SUPPORT TICKETS SECTION */}
+              {(requestsSubTab === 'all' || requestsSubTab === 'tickets') && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg text-foreground flex items-center gap-2">
+                      <HelpCircle className="w-4 h-4 text-violet-500" />
+                      <span>Support & Problem Tickets ({myTickets.length})</span>
+                    </h3>
+                  </div>
+
+                  {myTickets.length > 0 ? (
+                    <div className="space-y-4" data-testid="user-tickets-list">
+                      {myTickets.slice((ticketsPage - 1) * 20, ticketsPage * 20).map((ticket) => (
+                        <div
+                          key={ticket.id}
+                          className="bg-card border border-border rounded-xl p-4 sm:p-5 space-y-3 transition-all hover:border-violet-500/30"
+                          data-testid={`ticket-card-${ticket.id}`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border/40 pb-3">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono font-bold text-sm text-violet-400">
+                                  {ticket.ticket_number}
+                                </span>
+                                <Badge variant="outline" className="text-xs">
+                                  {ticket.category}
+                                </Badge>
+                                {ticket.priority && ticket.priority === 'urgent' && (
+                                  <Badge className="bg-red-500 text-white text-[10px] font-bold">
+                                    Urgent
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Submitted: {formatDate(ticket.created_at)}
+                                {ticket.updated_at && ticket.updated_at !== ticket.created_at && (
+                                  <span className="ml-2 font-mono">• Last Updated: {formatDate(ticket.updated_at)}</span>
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className={
+                                  ticket.status === 'resolved'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-bold'
+                                    : ticket.status === 'in_progress'
+                                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20 font-bold'
+                                    : ticket.status === 'closed'
+                                    ? 'bg-zinc-500/10 text-muted-foreground border-zinc-500/20'
+                                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20 font-bold'
+                                }
+                                data-testid={`ticket-status-${ticket.id}`}
+                              >
+                                {ticket.status === 'open' ? 'UNDER REVIEW' : ticket.status?.replace('_', ' ').toUpperCase()}
+                              </Badge>
+
+                              {ticket.decision && (
+                                <Badge className="bg-violet-500/10 text-violet-300 border-violet-500/20 text-xs font-semibold">
+                                  Decision: {ticket.decision}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="font-bold text-base text-foreground mb-1">{ticket.subject}</h4>
+                            <p className="text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                              {ticket.description}
+                            </p>
+                          </div>
+
+                          {(ticket.listing_id || ticket.transaction_id) && (
+                            <div className="flex flex-wrap items-center gap-3 p-2 bg-muted/30 border border-border/50 rounded-lg text-xs">
+                              {ticket.listing_id && (
+                                <div>
+                                  <span className="text-muted-foreground">Listing Reference: </span>
+                                  <a href={`/listing/${ticket.listing_id}`} target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:underline font-mono font-medium">
+                                    {ticket.listing_id}
+                                  </a>
+                                </div>
+                              )}
+                              {ticket.transaction_id && (
+                                <div>
+                                  <span className="text-muted-foreground">Transaction ID: </span>
+                                  <span className="font-mono text-cyan-400 font-medium">{ticket.transaction_id}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Admin Official Remark Box */}
+                          {ticket.admin_response ? (
+                            <div
+                              className="p-3.5 bg-violet-500/10 border border-violet-500/25 rounded-xl space-y-1.5 mt-2"
+                              data-testid={`ticket-admin-response-${ticket.id}`}
+                            >
+                              <div className="flex items-center justify-between text-xs font-bold text-violet-300">
+                                <div className="flex items-center gap-1.5">
+                                  <ShieldCheck className="w-4 h-4 text-violet-400" />
+                                  <span>Admin Official Response</span>
+                                </div>
+                                {ticket.updated_at && (
+                                  <span className="text-[10px] text-muted-foreground font-normal">
+                                    Updated: {formatDate(ticket.updated_at)}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs sm:text-sm text-foreground font-medium pl-5 leading-relaxed">
+                                "{ticket.admin_response}"
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 bg-muted/30 border border-border/40 rounded-lg text-xs text-muted-foreground flex items-center gap-2">
+                              <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span>Our support team is reviewing your ticket and will post updates directly here.</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <PaginationControls
+                        currentPage={ticketsPage}
+                        totalPages={Math.ceil(myTickets.length / 20)}
+                        totalRecords={myTickets.length}
+                        pageSize={20}
+                        onPageChange={setTicketsPage}
+                      />
+                    </div>
+                  ) : requestsSubTab === 'tickets' ? (
+                    <div className="text-center py-12 bg-card rounded-xl border border-border space-y-3">
+                      <HelpCircle className="w-12 h-12 mx-auto text-muted-foreground opacity-40" />
+                      <h4 className="font-bold text-base text-foreground">No support tickets submitted</h4>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        If you have any account issues, fake deal concerns, or payment questions, submit a ticket to get help.
+                      </p>
+                      <Link to="/contact">
+                        <Button size="sm" className="bg-violet-600 hover:bg-violet-700 font-bold text-xs mt-1">
+                          Submit Support Ticket
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* 3. REPORTED ADS SECTION */}
+              {(requestsSubTab === 'all' || requestsSubTab === 'reports') && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg text-foreground flex items-center gap-2">
+                      <Flag className="w-4 h-4 text-violet-500" />
+                      <span>Reported Ads & Listings ({myReports.length})</span>
+                    </h3>
+                  </div>
+
+                  {myReports.length > 0 ? (
+                    <div className="space-y-4" data-testid="user-reports-list">
+                      {myReports.slice((reportsPage - 1) * 20, reportsPage * 20).map((report) => (
+                        <div
+                          key={report.id}
+                          className="bg-card border border-border rounded-xl p-4 sm:p-5 space-y-3 transition-all hover:border-violet-500/30"
+                          data-testid={`report-card-${report.id}`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border/40 pb-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-xs text-violet-400">
+                                  Report #{report.id.slice(0, 8).toUpperCase()}
+                                </span>
+                                <span className="text-xs text-muted-foreground capitalize">
+                                  • {report.target_type?.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Submitted on: {formatDate(report.created_at)}
+                                {report.updated_at && report.updated_at !== report.created_at && (
+                                  <span className="ml-2 font-mono">• Last Updated: {formatDate(report.updated_at)}</span>
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className={
+                                  report.status === 'resolved'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 font-bold'
+                                    : report.status === 'under_review'
+                                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 font-bold'
+                                    : report.status === 'dismissed' || report.status === 'rejected'
+                                    ? 'bg-red-500/10 text-red-400 border-red-500/20 font-bold'
+                                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20 font-bold'
+                                }
+                                data-testid={`report-status-${report.id}`}
+                              >
+                                {report.status === 'pending' ? 'SUBMITTED' : report.status?.replace('_', ' ').toUpperCase()}
+                              </Badge>
+
+                              {report.decision && (
+                                <Badge className="bg-violet-500/10 text-violet-300 border-violet-500/20 text-xs font-semibold">
+                                  Decision: {report.decision}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Target Listing Information */}
+                          {report.target_type === 'listing' && (
+                            <div className="flex items-center justify-between p-2.5 bg-muted/30 border border-border rounded-lg text-xs">
+                              <div className="min-w-0 flex-1 pr-2">
+                                <span className="text-muted-foreground">Reported Ad: </span>
+                                <strong className="text-foreground">{report.listing_title || 'Marketplace Listing'}</strong>
+                              </div>
+                              {report.target_id && (
+                                <a
+                                  href={`/listing/${report.listing_slug || report.target_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-violet-400 hover:text-violet-300 font-semibold shrink-0 inline-flex items-center gap-1"
+                                >
+                                  View Ad <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Problem & Reason */}
+                          <div className="space-y-1 text-xs sm:text-sm">
+                            <p className="text-muted-foreground">
+                              <span className="font-semibold text-foreground">Reason: </span>
+                              <span className="text-rose-400 font-medium">{report.reason}</span>
+                            </p>
+                            {report.details && (
+                              <p className="text-muted-foreground">
+                                <span className="font-semibold text-foreground">Description: </span>
+                                <span>{report.details}</span>
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Admin Response Box (Visible when admin has replied) */}
+                          {report.admin_response ? (
+                            <div
+                              className="p-3.5 bg-violet-500/10 border border-violet-500/25 rounded-xl space-y-1.5 mt-2"
+                              data-testid={`admin-response-${report.id}`}
+                            >
+                              <div className="flex items-center justify-between text-xs font-bold text-violet-300">
+                                <div className="flex items-center gap-1.5">
+                                  <ShieldCheck className="w-4 h-4 text-violet-400" />
+                                  <span>Admin Moderation Remark / Decision Reason</span>
+                                </div>
+                                {report.updated_at && (
+                                  <span className="text-[10px] text-muted-foreground font-normal">
+                                    Updated: {formatDate(report.updated_at)}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs sm:text-sm text-foreground font-medium pl-5 leading-relaxed">
+                                "{report.admin_response}"
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 bg-muted/30 border border-border/40 rounded-lg text-xs text-muted-foreground flex items-center gap-2">
+                              <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span>Our moderation team is reviewing this report. Any action or remark will appear here.</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <PaginationControls
+                        currentPage={reportsPage}
+                        totalPages={Math.ceil(myReports.length / 20)}
+                        totalRecords={myReports.length}
+                        pageSize={20}
+                        onPageChange={setReportsPage}
+                      />
+                    </div>
+                  ) : requestsSubTab === 'reports' ? (
+                    <div className="text-center py-12 bg-card rounded-xl border border-border space-y-2">
+                      <Flag className="w-12 h-12 mx-auto text-muted-foreground opacity-40" />
+                      <h4 className="font-bold text-base text-foreground">No reports filed</h4>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        If you encounter any suspicious listings, inappropriate content, or fraudulent behavior, you can report it directly from the listing page.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
             </div>
           )}
         </TabsContent>
@@ -927,15 +1984,20 @@ export default function Dashboard() {
                   )}
                   
                   <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
-                    {user?.is_seller_verified ? (
-                      <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
-                        <CheckCircle className="w-3 h-3 mr-1" />
+                    {kycStatusData?.status === 'verified' || user?.is_seller_verified ? (
+                      <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20" data-testid="user-verified-badge">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
                         Verified Seller
                       </Badge>
-                    ) : user?.verification_status === 'pending' ? (
-                      <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">
-                        <AlertCircle className="w-3 h-3 mr-1" />
-                        KYC Pending Review
+                    ) : kycStatusData?.status === 'pending' || user?.verification_status === 'pending' ? (
+                      <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20" data-testid="user-pending-badge">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Verification Pending
+                      </Badge>
+                    ) : kycStatusData?.status === 'rejected' || user?.verification_status === 'rejected' ? (
+                      <Badge className="bg-red-500/10 text-red-400 border-red-500/20" data-testid="user-rejected-badge">
+                        <XCircle className="w-3 h-3 mr-1" />
+                        Verification Rejected
                       </Badge>
                     ) : (
                       <Badge className="bg-zinc-500/10 text-muted-foreground border-zinc-500/20">
@@ -947,26 +2009,118 @@ export default function Dashboard() {
               </div>
 
               {/* Seller Verification Banner Card */}
-              <div className="bg-card border border-border rounded-xl p-4 sm:p-5 h-fit">
-                {user?.is_seller_verified ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-emerald-500 font-semibold text-sm">
-                      <Shield className="w-4 h-4" />
-                      <span>Verified Seller Active</span>
+              <div className="bg-card border border-border rounded-xl p-4 sm:p-5 h-fit" data-testid="seller-verification-card">
+                {kycStatusData?.status === 'verified' || user?.is_seller_verified ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 text-emerald-500 font-bold text-sm">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                        <span>✓ Verified Seller</span>
+                      </div>
+                      <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs font-semibold">
+                        Active
+                      </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Your identity has been verified by our moderation team. Your listings receive priority visibility and buyer trust badges.
+                      Your identity has been verified by our moderation team. Your listings receive priority placement and verified buyer trust badges.
                     </p>
+
+                    {/* Monthly Free Posts Perk Widget */}
+                    <div className="mt-3 p-3.5 bg-gradient-to-br from-violet-500/10 to-purple-500/5 dark:from-violet-950/30 dark:to-purple-900/10 border border-violet-500/30 dark:border-violet-500/25 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-violet-950 dark:text-violet-300 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+                          Free Listings This Month
+                        </span>
+                        <span className="font-bold text-violet-700 dark:text-violet-400 font-mono">
+                          {allowanceData ? `${allowanceData.used} / ${allowanceData.limit} used` : '0 / 3 used'}
+                        </span>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="w-full h-2 bg-muted/60 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-violet-600 rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, (((allowanceData?.used || 0) / 3) * 100))}%`
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+                        <span>
+                          {allowanceData?.remaining > 0 ? (
+                            <strong className="text-emerald-400 font-semibold">
+                              {allowanceData.remaining} free post{allowanceData.remaining > 1 ? 's' : ''} remaining
+                            </strong>
+                          ) : (
+                            <span className="text-amber-400 font-medium">
+                              No free listings remaining this month
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">Auto-resets monthly</span>
+                      </div>
+                    </div>
                   </div>
-                ) : user?.verification_status === 'pending' ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-amber-500 font-semibold text-sm">
-                      <AlertCircle className="w-4 h-4" />
-                      <span>KYC Verification In Progress</span>
+                ) : kycStatusData?.status === 'pending' || user?.verification_status === 'pending' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 text-amber-500 font-bold text-sm">
+                        <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+                        <span>Verification Pending</span>
+                      </div>
+                      <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-xs font-semibold">
+                        Under Review
+                      </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Your submitted government identification is being reviewed by our verification team. This usually takes 24-48 hours.
+                      Your verification application is currently being reviewed by our moderation team. This usually takes 24-48 hours.
                     </p>
+                    {kycStatusData?.submitted_at && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Submitted: <span className="text-foreground font-medium">{formatDate(kycStatusData.submitted_at)}</span>
+                      </p>
+                    )}
+                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400/90 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                      <span>Duplicate submissions are prevented while review is pending.</span>
+                    </div>
+                  </div>
+                ) : kycStatusData?.status === 'rejected' || user?.verification_status === 'rejected' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                        <XCircle className="w-5 h-5 text-red-500" />
+                        <span>Verification Rejected</span>
+                      </div>
+                      <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs font-semibold">
+                        Rejected
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Your verification request was rejected by an administrator.
+                    </p>
+
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl space-y-1">
+                      <p className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        Reason:
+                      </p>
+                      <p className="text-xs text-foreground font-medium pl-5" data-testid="rejection-reason-text">
+                        {kycStatusData?.rejection_reason || 'The submitted government ID could not be verified.'}
+                      </p>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      className="w-full bg-violet-600 hover:bg-violet-700 font-bold text-xs"
+                      onClick={() => setShowVerifyModal(true)}
+                      data-testid="reapply-kyc-btn"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                      Re-apply for Verification
+                    </Button>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -977,13 +2131,29 @@ export default function Dashboard() {
                       <div>
                         <h4 className="font-bold text-sm">Become a Verified Seller</h4>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Upload government ID to get the verified badge and build trust with buyers.
+                          Upload government ID to get the verified badge, 3 free monthly posts, and build trust with buyers.
                         </p>
                       </div>
                     </div>
-                    <Button 
-                      size="sm" 
-                      className="w-full bg-violet-600 hover:bg-violet-700 font-bold"
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-muted-foreground pt-1">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>Verified Badge</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>3 Free Posts / Mo</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span>Priority Visibility</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      className="w-full bg-violet-600 hover:bg-violet-700 font-bold text-xs"
                       onClick={() => setShowVerifyModal(true)}
                       data-testid="apply-kyc-btn"
                     >
@@ -1799,6 +2969,148 @@ export default function Dashboard() {
               className="bg-violet-600 hover:bg-violet-700"
             >
               {verifyLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit for Verification'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 30-Day Expiry Extension Request Dialog */}
+      <Dialog open={isExtensionModalOpen} onOpenChange={setIsExtensionModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-violet-400" />
+              <span>Request 30-Day Expiry Extension</span>
+            </DialogTitle>
+            <DialogDescription>
+              Submit an extension request for <strong className="text-foreground">{extensionListing?.title}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            <div className="p-3 bg-violet-500/10 dark:bg-violet-950/30 border border-violet-500/30 dark:border-violet-500/20 rounded-xl space-y-1 text-zinc-700 dark:text-zinc-300">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground font-medium">Current Expiry:</span>
+                <span className="font-bold text-foreground">{formatDate(extensionListing?.expires_at)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground font-medium">Extension Allowed:</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-400">+30 Days (1 extension max)</span>
+              </div>
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-400 pt-1 border-t border-border/60">
+                Extension requests are reviewed by the moderation team. If approved, the listing's validity is extended by 30 days.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Reason for Extension Request (Optional)</Label>
+              <textarea
+                placeholder="e.g. Item still available, looking for serious local buyers..."
+                value={extensionReason}
+                onChange={(e) => setExtensionReason(e.target.value)}
+                rows={3}
+                className="w-full bg-background border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-violet-500"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsExtensionModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmExtensionRequest}
+              disabled={extensionLoading}
+              className="bg-violet-600 hover:bg-violet-700 font-bold"
+            >
+              {extensionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : 'Submit Extension Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* One-Time Free Edit Request Dialog */}
+      <Dialog open={isFreeEditModalOpen} onOpenChange={setIsFreeEditModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="w-5 h-5 text-cyan-400" />
+              <span>Request One-Time Free Edit</span>
+            </DialogTitle>
+            <DialogDescription>
+              Request an admin-approved free edit allowance for <strong className="text-foreground">{freeEditListing?.title}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            <div className="p-3 bg-cyan-500/10 dark:bg-cyan-950/30 border border-cyan-500/30 dark:border-cyan-500/20 rounded-xl space-y-1 text-zinc-700 dark:text-zinc-300">
+              <p className="leading-relaxed">
+                By platform policy, free edits are allowed within 24 hours of posting. If you need to update crucial product details, pricing, or images after 24h, you can request an administrative one-time free edit allowance.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">What details do you need to modify? *</Label>
+              <textarea
+                placeholder="e.g. Need to adjust price to ₹15,000 and update warranty status..."
+                value={freeEditReason}
+                onChange={(e) => setFreeEditReason(e.target.value)}
+                rows={3}
+                className="w-full bg-background border border-border rounded-xl p-2.5 text-xs text-foreground focus:outline-none focus:border-violet-500"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsFreeEditModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmFreeEditRequest}
+              disabled={freeEditLoading || !freeEditReason.trim()}
+              className="bg-violet-600 hover:bg-violet-700 font-bold"
+            >
+              {freeEditLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : 'Submit Edit Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Listing Confirmation Dialog (Soft-Delete & Audit Compliant) */}
+      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <Trash2 className="w-5 h-5" />
+              <span>Delete Listing</span>
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove <strong className="text-foreground">"{listingToDelete?.title}"</strong>?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2 text-xs space-y-2">
+            <div className="p-3 bg-red-500/10 dark:bg-red-950/20 border border-red-500/30 dark:border-red-500/20 rounded-xl space-y-1 text-zinc-700 dark:text-zinc-300">
+              <p className="font-bold text-red-600 dark:text-red-400">Safe Deletion Policy:</p>
+              <p>
+                Deleting will remove this listing from marketplace search, public browsing, and active user cards immediately.
+              </p>
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-400 pt-1 border-t border-border/60">
+                Payment invoices, receipts, and administrative transaction history are securely retained for tax, warranty, and fraud prevention compliance.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold"
+            >
+              Delete Listing
             </Button>
           </DialogFooter>
         </DialogContent>

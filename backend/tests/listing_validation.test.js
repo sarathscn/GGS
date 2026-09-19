@@ -30,7 +30,35 @@ async function runListingValidationTests() {
     assert.strictEqual(res.status, 200);
   });
 
-  await test('User Login', async () => {
+  await test('User Login / Setup', async () => {
+    const mongoose = require('mongoose');
+    const bcrypt = require('bcryptjs');
+    const path = require('path');
+    const dotenv = require('dotenv');
+    dotenv.config({ path: path.join(__dirname, '../.env') });
+
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGO_URL || 'mongodb://127.0.0.1:27017', { dbName: process.env.DB_NAME || 'ggs_database' });
+    }
+
+    const User = require('../src/models/User');
+    const hashed = await bcrypt.hash('user123', 10);
+    await User.findOneAndUpdate(
+      { email: 'user@ggs.com' },
+      {
+        $set: {
+          id: 'test-user-validation-id',
+          email: 'user@ggs.com',
+          name: 'Test User',
+          password: hashed,
+          role: 'user',
+          is_verified: true,
+          created_at: new Date().toISOString()
+        }
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
+
     const res = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -202,7 +230,25 @@ async function runListingValidationTests() {
   });
 
   await test('Reject Edit Ad with price > ₹10,00,000 (₹10,00,001)', async () => {
-    const res = await fetch(`${API_URL}/listings/${createdListingId}`, {
+    // Create fresh listing with free edit available to test price rejection
+    const freshRes = await fetch(`${API_URL}/listings`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        title: 'Fresh Listing for Price Validation',
+        description: 'Testing edit price rejection',
+        category_id: pcCatId,
+        item_type: 'physical',
+        price: 50000,
+        price_type: 'fixed',
+        condition: 'New',
+        location: 'Kochi, Ernakulam',
+        contact_phone: '+919876543211'
+      })
+    });
+    const freshListing = await freshRes.json();
+
+    const res = await fetch(`${API_URL}/listings/${freshListing.id}`, {
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({
